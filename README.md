@@ -1,73 +1,51 @@
-# React + TypeScript + Vite
+# Global Sourcing Copilot
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+AI-assisted sourcing decision workspace for product requirement intake, supplier discovery, landed cost analysis, lead-time comparison, supplier scoring, risk review, and final recommendation memos.
 
-Currently, two official plugins are available:
+The repository includes two frontends:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- React/Vite portfolio app in `src/`
+- Streamlit Cloud-ready app in `streamlit_app.py`
 
-## React Compiler
+## Streamlit Deployment
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Use this as the Streamlit main file path:
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```text
+streamlit_app.py
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Streamlit Cloud should install Python dependencies from:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```text
+requirements.txt
 ```
+
+Local run:
+
+```bash
+python -m streamlit run streamlit_app.py
+```
+
+## React App
+
+Local run:
+
+```bash
+pnpm install
+pnpm dev
+```
+
+Production build:
+
+```bash
+pnpm build
+```
+
+## MVP Notes
+
+- Uses sample sourcing data.
+- Stores edits in local browser/session state depending on frontend.
+- Does not connect to a backend or live AI API.
+- AI review, supplier suggestions, insights, and memo generation use rule-based placeholder logic.
+- Supplier data confidence labels include Verified, Estimated, AI Suggested, Needs Manual Review, and Unavailable Online.
