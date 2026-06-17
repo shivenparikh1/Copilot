@@ -27,6 +27,8 @@ Local run:
 python -m streamlit run streamlit_app.py
 ```
 
+The Streamlit app starts as a blank guided workflow. It does not preload product or supplier data. Use **Load demo** inside the app only when you want sample data for testing.
+
 ## React App
 
 Local run:
@@ -44,7 +46,7 @@ pnpm build
 
 ## MVP Notes
 
-- Uses sample sourcing data.
+- Includes optional sample sourcing data for demos.
 - Stores edits in local browser/session state depending on frontend.
 - Does not connect to a backend or live AI API.
 - AI review, supplier suggestions, insights, and memo generation use rule-based placeholder logic.

@@ -49,6 +49,23 @@ WEIGHT_LABELS = {
     "contract": "Contract Terms",
 }
 
+BLANK_REQUIREMENT = {
+    "product_name": "",
+    "product_category": "",
+    "product_specs": "",
+    "quantity": 0,
+    "quality_requirements": "",
+    "compliance_requirements": "",
+    "target_cost": 0.0,
+    "required_lead_time": 0,
+    "forecasted_demand": 0,
+    "approved_materials": "",
+    "technical_drawings": "",
+    "packaging_requirements": "",
+    "delivery_location": "",
+    "criticality": "Medium",
+}
+
 SAMPLE_REQUIREMENT = {
     "product_name": "Precision aluminum motor housing",
     "product_category": "CNC machined components",
@@ -497,11 +514,57 @@ def add_css() -> None:
 
 def initialize_state() -> None:
     if "requirement" not in st.session_state:
-        st.session_state.requirement = deepcopy(SAMPLE_REQUIREMENT)
+        st.session_state.requirement = deepcopy(BLANK_REQUIREMENT)
     if "suppliers" not in st.session_state:
-        st.session_state.suppliers = deepcopy(SAMPLE_SUPPLIERS)
+        st.session_state.suppliers = []
     if "weights" not in st.session_state:
         st.session_state.weights = deepcopy(DEFAULT_WEIGHTS)
+    if "workspace_page" not in st.session_state:
+        st.session_state.workspace_page = "Guide"
+
+
+def reset_workspace() -> None:
+    st.session_state.requirement = deepcopy(BLANK_REQUIREMENT)
+    st.session_state.suppliers = []
+    st.session_state.weights = deepcopy(DEFAULT_WEIGHTS)
+    st.session_state.workspace_page = "Guide"
+
+
+def load_demo_data() -> None:
+    st.session_state.requirement = deepcopy(SAMPLE_REQUIREMENT)
+    st.session_state.suppliers = deepcopy(SAMPLE_SUPPLIERS)
+    st.session_state.weights = deepcopy(DEFAULT_WEIGHTS)
+    st.session_state.workspace_page = "Dashboard"
+
+
+def navigate_to_page(page: str) -> None:
+    st.session_state.workspace_page = page
+
+
+def requirement_progress(requirement: dict[str, Any]) -> tuple[int, int]:
+    required_fields = [
+        "product_name",
+        "product_category",
+        "product_specs",
+        "quantity",
+        "quality_requirements",
+        "compliance_requirements",
+        "target_cost",
+        "required_lead_time",
+        "forecasted_demand",
+        "approved_materials",
+        "technical_drawings",
+        "packaging_requirements",
+        "delivery_location",
+    ]
+    complete = 0
+    for field in required_fields:
+        value = requirement.get(field)
+        if isinstance(value, str):
+            complete += int(bool(value.strip()))
+        else:
+            complete += int(numeric(value) > 0)
+    return complete, len(required_fields)
 
 
 def numeric(value: Any) -> float:
@@ -685,7 +748,8 @@ def analyze_requirement(requirement: dict[str, Any]) -> dict[str, Any]:
     if requirement.get("criticality") in {"High", "Critical"}:
         risks.append("Critical parts need dual sourcing, documented qualification, and a backup plan.")
         questions.append("What backup capacity can you reserve if demand spikes or quality holds occur?")
-    if numeric(requirement.get("required_lead_time")) < 45:
+    required_lead_time = numeric(requirement.get("required_lead_time"))
+    if 0 < required_lead_time < 45:
         risks.append("The required lead time is tight for global sourcing and may require nearshore options.")
         questions.append("Which lead-time steps can be contractually committed, and where is buffer hidden?")
     if "rohs" not in str(requirement.get("compliance_requirements", "")).lower():
@@ -851,28 +915,49 @@ def render_header() -> None:
 
 def render_sidebar() -> str:
     st.sidebar.title("Global Sourcing Copilot")
-    st.sidebar.caption("Streamlit MVP with sample data and editable local session state.")
+    st.sidebar.caption("Guided sourcing workflow with editable local session state.")
+    action_cols = st.sidebar.columns(2)
+    if action_cols[0].button("Load demo", width="stretch"):
+        load_demo_data()
+        st.rerun()
+    if action_cols[1].button("Start fresh", width="stretch"):
+        reset_workspace()
+        st.rerun()
+
+    pages = [
+        "Guide",
+        "Product Intake",
+        "Supplier Discovery",
+        "Framework Table",
+        "Scoring Model",
+        "Dashboard",
+        "AI Insights",
+        "Recommendation & Export",
+    ]
+    if st.session_state.workspace_page not in pages:
+        st.session_state.workspace_page = "Guide"
     page = st.sidebar.radio(
         "Workspace",
-        [
-            "Dashboard",
-            "Product Intake",
-            "Supplier Discovery",
-            "Framework Table",
-            "Scoring Model",
-            "AI Insights",
-            "Recommendation & Export",
-        ],
+        pages,
+        key="workspace_page",
     )
     st.sidebar.info(
-        "Supplier data can be Verified, Estimated, AI Suggested, Needs Manual Review, or Unavailable Online. Human qualification is still required."
+        "Start with the guide, enter your own product and suppliers, then use the dashboard once enough data exists."
     )
     return page
 
 
 def render_summary(metrics: list[dict[str, Any]], review: dict[str, Any]) -> None:
     summary = recommendation_summary(metrics)
+    completed_fields, total_fields = requirement_progress(st.session_state.requirement)
     cols = st.columns(4)
+    if not metrics:
+        cols[0].metric("Guide step", "1", "Define product")
+        cols[1].metric("Requirement fields", f"{completed_fields}/{total_fields}", "Complete intake")
+        cols[2].metric("Suppliers added", len(st.session_state.suppliers), "Add 2+ options")
+        cols[3].metric("Recommendation", "Not ready", review["risk_tier"])
+        return
+
     cols[0].metric(
         "Best overall",
         summary["best_overall"]["supplier_name"] if summary["best_overall"] else "No supplier",
@@ -891,6 +976,48 @@ def render_summary(metrics: list[dict[str, Any]], review: dict[str, Any]) -> Non
         summary["fastest_lead_time"]["supplier_name"] if summary["fastest_lead_time"] else "Add suppliers",
     )
     cols[3].metric("Active suppliers", len(st.session_state.suppliers), review["risk_tier"])
+
+
+def render_guide(requirement: dict[str, Any], metrics: list[dict[str, Any]]) -> None:
+    completed_fields, total_fields = requirement_progress(requirement)
+    suppliers_count = len(st.session_state.suppliers)
+
+    st.subheader("Guide")
+    st.caption("Use this workflow to build a sourcing recommendation from your own inputs.")
+
+    st.markdown("### Start here")
+    st.write(
+        "This app now opens empty on purpose. Add the product requirement first, then suppliers, then compare costs, lead time, risk, and recommendation logic."
+    )
+
+    step_cols = st.columns(4)
+    step_cols[0].metric("1. Product intake", f"{completed_fields}/{total_fields}", "required fields")
+    step_cols[1].metric("2. Suppliers", suppliers_count, "options added")
+    step_cols[2].metric("3. Framework", "Ready" if suppliers_count else "Waiting", "editable table")
+    step_cols[3].metric("4. Memo", "Ready" if metrics else "Waiting", "after scoring")
+
+    st.markdown("### Workflow")
+    st.markdown(
+        """
+        1. Open **Product Intake** and enter the product, volume, quality, compliance, lead-time, and delivery requirements.
+        2. Open **Supplier Discovery** and add suppliers manually, or use **AI Suggested Supplier** for clearly labeled placeholder options.
+        3. Open **Framework Table** and fill in cost, lead-time, capability, risk, logistics, and contract assumptions.
+        4. Open **Scoring Model** to adjust the default sourcing weights.
+        5. Open **Dashboard** to compare landed cost, total cost of ownership, lead time, risk, and supplier score.
+        6. Open **Recommendation & Export** to download the supplier table and sourcing memo.
+        """
+    )
+
+    st.markdown("### Optional demo")
+    st.write("Use the demo only if you want to see the full dashboard behavior before entering real sourcing data.")
+    demo_col, fresh_col = st.columns(2)
+    demo_col.button("Load demo data", type="primary", width="stretch", on_click=load_demo_data)
+    fresh_col.button(
+        "Keep blank and start intake",
+        width="stretch",
+        on_click=navigate_to_page,
+        args=("Product Intake",),
+    )
 
 
 def render_intake(requirement: dict[str, Any], review: dict[str, Any]) -> None:
@@ -1046,6 +1173,10 @@ def render_supplier_discovery(requirement: dict[str, Any]) -> None:
 
 def render_framework_table() -> None:
     st.subheader("Global Sourcing Framework Table")
+    if not st.session_state.suppliers:
+        st.info("Add at least one supplier in Supplier Discovery before editing the framework table.")
+        return
+
     selected_label = st.selectbox(
         "Framework category",
         [section["label"] for section in FRAMEWORK_SECTIONS.values()],
@@ -1115,7 +1246,17 @@ def render_scoring(metrics: list[dict[str, Any]]) -> None:
 def render_dashboard(metrics: list[dict[str, Any]]) -> None:
     st.subheader("Dashboard")
     if not metrics:
-        st.info("Add suppliers to populate the dashboard.")
+        st.info("The dashboard is blank until you add suppliers and framework assumptions.")
+        st.markdown(
+            """
+            **Recommended next steps**
+
+            1. Complete Product Intake.
+            2. Add at least two suppliers.
+            3. Fill in cost and lead-time assumptions in the Framework Table.
+            4. Return here for charts and scoring.
+            """
+        )
         return
 
     score_df = metrics_dataframe(metrics)
@@ -1199,6 +1340,9 @@ def render_insights(
 ) -> None:
     st.subheader("AI Insight Panels")
     st.caption("Rule-based placeholder logic. Validate supplier data manually before final award.")
+    if not suppliers:
+        st.info("Insights will appear after you add product requirements and supplier options.")
+        return
     for insight in build_insights(requirement, suppliers, metrics):
         st.warning(insight)
 
@@ -1207,6 +1351,9 @@ def render_recommendation(
     requirement: dict[str, Any], suppliers: list[dict[str, Any]], metrics: list[dict[str, Any]]
 ) -> None:
     st.subheader("Final Sourcing Recommendation")
+    if not suppliers:
+        st.info("The recommendation memo will be generated after you add suppliers and scoring assumptions.")
+        return
     memo = generate_memo(requirement, suppliers, metrics)
     st.text_area("Recommendation memo", memo, height=460)
     col1, col2 = st.columns(2)
@@ -1240,7 +1387,9 @@ def main() -> None:
     render_summary(metrics, review)
     st.divider()
 
-    if page == "Dashboard":
+    if page == "Guide":
+        render_guide(requirement, metrics)
+    elif page == "Dashboard":
         render_dashboard(metrics)
     elif page == "Product Intake":
         render_intake(requirement, review)
@@ -1256,7 +1405,7 @@ def main() -> None:
         render_recommendation(requirement, suppliers, metrics)
 
     st.caption(
-        "This Streamlit MVP uses sample data and session state. It does not call a backend or live AI API."
+        "This Streamlit MVP uses session state. Demo data is optional and must be loaded manually. No backend or live AI API is connected."
     )
 
 
