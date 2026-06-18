@@ -1401,10 +1401,10 @@ def render_sidebar() -> str:
         "Supplier Discovery",
         "Framework Table",
         "Framework Weights",
-        "Weekly News",
         "Dashboard",
         "AI Insights",
         "Recommendation & Export",
+        "Weekly News",
     ]
     if st.session_state.workspace_page not in pages:
         st.session_state.workspace_page = "Guide"
@@ -1475,9 +1475,9 @@ def render_guide(requirement: dict[str, Any], metrics: list[dict[str, Any]]) -> 
         2. Open **Supplier Discovery** and add suppliers manually, or use **AI Suggested Supplier** for clearly labeled placeholder options.
         3. Open **Framework Table** and fill in cost, lead-time, capability, risk, logistics, and contract assumptions.
         4. Open **Framework Weights** to tune the category weights and individual field weights.
-        5. Open **Weekly News** to scan current sourcing, trade, logistics, and supplier-risk updates.
-        6. Open **Dashboard** to compare landed cost, total cost of ownership, lead time, risk, and supplier score.
-        7. Open **Recommendation & Export** to download the supplier table and sourcing memo.
+        5. Open **Dashboard** to compare landed cost, total cost of ownership, lead time, risk, and supplier score.
+        6. Open **Recommendation & Export** to download the supplier table and sourcing memo.
+        7. Open **Weekly News** to scan current sourcing, trade, logistics, and supplier-risk updates when you want external context.
         """
     )
 
@@ -2068,12 +2068,12 @@ def main() -> None:
         render_framework_table()
     elif page == "Framework Weights":
         render_scoring(metrics)
-    elif page == "Weekly News":
-        render_weekly_news()
     elif page == "AI Insights":
         render_insights(requirement, suppliers, metrics)
     elif page == "Recommendation & Export":
         render_recommendation(requirement, suppliers, metrics)
+    elif page == "Weekly News":
+        render_weekly_news()
 
     st.caption(
         "This Streamlit MVP uses session state. Demo data is optional. Weekly news uses public RSS; no backend or live AI API is connected."
