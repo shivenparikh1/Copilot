@@ -33,6 +33,7 @@ New sourcing workflow sections include:
 
 - **Framework Weights** for changing both top-level scoring weights and individual field weights.
 - **Weekly News** for current sourcing, trade, logistics, and supplier-risk headlines from a public RSS feed cached for one week.
+- **Sourcing Excel Upload** for extracting matching product requirements and supplier rows from `.xlsx` workbooks.
 
 ## React App
 
@@ -54,6 +55,7 @@ pnpm build
 - Includes optional sample sourcing data for demos.
 - Includes configurable category and field-level scoring weights.
 - Includes public RSS-based weekly news updates for current sourcing context.
+- Can prefill matching requirement and supplier fields from uploaded sourcing Excel workbooks while leaving unmatched fields blank.
 - Stores edits in local browser/session state depending on frontend.
 - Does not connect to a backend or live AI API.
 - AI review, supplier suggestions, insights, and memo generation use rule-based placeholder logic.

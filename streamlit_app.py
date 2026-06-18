@@ -4,7 +4,8 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from html import unescape
-from io import StringIO
+from io import BytesIO, StringIO
+import re
 from typing import Any
 from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
@@ -87,6 +88,61 @@ BLANK_REQUIREMENT = {
     "packaging_requirements": "",
     "delivery_location": "",
     "criticality": "Medium",
+}
+
+REQUIREMENT_FIELD_ALIASES = {
+    "product_name": ["product name", "product", "part name", "item", "item name", "sku", "component"],
+    "product_category": ["product category", "category", "commodity", "sourcing category", "product type"],
+    "product_specs": [
+        "product specs",
+        "specs",
+        "specification",
+        "specifications",
+        "description",
+        "technical specification",
+        "product description",
+    ],
+    "quantity": ["quantity", "order quantity", "qty", "rfq quantity", "purchase quantity"],
+    "quality_requirements": ["quality requirements", "quality", "qc requirements", "inspection requirements"],
+    "compliance_requirements": [
+        "compliance requirements",
+        "compliance",
+        "regulatory requirements",
+        "certifications required",
+        "required certifications",
+    ],
+    "target_cost": ["target cost", "target price", "target unit cost", "budget", "cost target"],
+    "required_lead_time": [
+        "required lead time",
+        "target lead time",
+        "lead time requirement",
+        "required lead time days",
+    ],
+    "forecasted_demand": ["forecasted demand", "forecast demand", "annual demand", "demand forecast"],
+    "approved_materials": ["approved materials", "material", "materials", "approved material"],
+    "technical_drawings": [
+        "technical drawings",
+        "technical drawing",
+        "drawing",
+        "drawing link",
+        "cad",
+        "drawing notes",
+    ],
+    "packaging_requirements": ["packaging requirements", "packaging", "packing requirements"],
+    "delivery_location": ["delivery location", "ship to", "destination", "delivery address", "final destination"],
+    "criticality": ["criticality", "criticality level", "priority", "part criticality"],
+}
+
+SUPPLIER_FIELD_ALIASES = {
+    "name": ["supplier", "supplier name", "vendor", "vendor name", "manufacturer", "manufacturer name"],
+    "country": ["country", "supplier country", "manufacturing country"],
+    "region": ["region", "supplier region", "manufacturing region"],
+    "website": ["website", "supplier website", "url", "web site"],
+    "product_match": ["product match", "capability match", "match", "supplier capability notes"],
+    "certifications": ["certifications", "supplier certifications", "certification"],
+    "annual_capacity": ["annual capacity", "capacity", "estimated annual capacity", "production capacity"],
+    "customer_notes": ["customer notes", "notes", "supplier notes", "comments"],
+    "confidence_level": ["confidence level", "confidence", "data confidence", "source confidence"],
 }
 
 SAMPLE_REQUIREMENT = {
@@ -308,6 +364,255 @@ def sync_weight_inputs() -> None:
         widget_key = f"weight_{key}"
         if widget_key in st.session_state:
             st.session_state.weights[key] = numeric(st.session_state[widget_key])
+
+
+def clean_cell(value: Any) -> str:
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def normalize_label(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", clean_cell(value).lower()).strip()
+
+
+def alias_lookup(alias_map: dict[str, list[str]]) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    for key, aliases in alias_map.items():
+        lookup[normalize_label(key)] = key
+        for alias in aliases:
+            lookup[normalize_label(alias)] = key
+    return lookup
+
+
+def supplier_lookup() -> dict[str, str]:
+    lookup = alias_lookup(SUPPLIER_FIELD_ALIASES)
+    for section in FRAMEWORK_SECTIONS.values():
+        for key, label, _kind in section["fields"]:
+            lookup[normalize_label(key)] = key
+            lookup[normalize_label(label)] = key
+            lookup[normalize_label(label.replace(" score", "").replace(" risk", ""))] = key
+    return lookup
+
+
+def field_kind(key: str) -> str:
+    for section in FRAMEWORK_SECTIONS.values():
+        for field_key, _label, kind in section["fields"]:
+            if field_key == key:
+                return kind
+    return "text"
+
+
+def coerce_requirement_value(key: str, value: Any) -> Any:
+    text_value = clean_cell(value)
+    if not text_value:
+        return None
+    if key in {"quantity", "required_lead_time", "forecasted_demand"}:
+        return int(numeric(value))
+    if key == "target_cost":
+        return float(numeric(value))
+    if key == "criticality":
+        for level in CRITICALITY_LEVELS:
+            if normalize_label(level) == normalize_label(text_value):
+                return level
+        return text_value
+    return text_value
+
+
+def coerce_supplier_value(key: str, value: Any) -> Any:
+    text_value = clean_cell(value)
+    if not text_value:
+        return None
+    if key == "annual_capacity":
+        return int(numeric(value))
+    if key == "confidence_level":
+        normalized = normalize_label(text_value)
+        for level in CONFIDENCE_LEVELS:
+            if normalize_label(level) == normalized:
+                return level
+        return "Needs Manual Review"
+    kind = field_kind(key)
+    if kind == "text":
+        return text_value
+    if kind in {"score", "risk"}:
+        return max(0.0, min(5.0, numeric(value)))
+    return numeric(value)
+
+
+def row_label_count(row: pd.Series, lookup: dict[str, str]) -> int:
+    return sum(1 for value in row.tolist() if normalize_label(value) in lookup)
+
+
+def mapped_columns(row: pd.Series, lookup: dict[str, str]) -> dict[int, str]:
+    columns = {}
+    seen = set()
+    for col_idx, value in enumerate(row.tolist()):
+        key = lookup.get(normalize_label(value))
+        if key and key not in seen:
+            columns[col_idx] = key
+            seen.add(key)
+    return columns
+
+
+def extract_key_value_requirements(
+    df: pd.DataFrame, sheet_name: str, requirement_lookup: dict[str, str]
+) -> tuple[dict[str, Any], list[str]]:
+    extracted: dict[str, Any] = {}
+    matches = []
+    max_rows = min(len(df), 100)
+    max_cols = min(len(df.columns), 12)
+    for row_idx in range(max_rows):
+        row = df.iloc[row_idx, :max_cols]
+        if row_label_count(row, requirement_lookup) > 1:
+            continue
+        for col_idx in range(max_cols):
+            key = requirement_lookup.get(normalize_label(df.iat[row_idx, col_idx]))
+            if not key or key in extracted:
+                continue
+            candidates = []
+            if col_idx + 1 < max_cols:
+                candidates.append(df.iat[row_idx, col_idx + 1])
+            if row_idx + 1 < max_rows:
+                candidates.append(df.iat[row_idx + 1, col_idx])
+            for candidate in candidates:
+                if normalize_label(candidate) in requirement_lookup:
+                    continue
+                value = coerce_requirement_value(key, candidate)
+                if value is not None:
+                    extracted[key] = value
+                    matches.append(f"{sheet_name}: {key}")
+                    break
+    return extracted, matches
+
+
+def extract_wide_requirements(
+    df: pd.DataFrame, sheet_name: str, requirement_lookup: dict[str, str]
+) -> tuple[dict[str, Any], list[str]]:
+    for header_idx in range(min(len(df), 25)):
+        columns = mapped_columns(df.iloc[header_idx], requirement_lookup)
+        if len(columns) < 2:
+            continue
+        for row_idx in range(header_idx + 1, min(len(df), header_idx + 12)):
+            row_values = {
+                key: coerce_requirement_value(key, df.iat[row_idx, col_idx])
+                for col_idx, key in columns.items()
+            }
+            row_values = {key: value for key, value in row_values.items() if value is not None}
+            if row_values:
+                return row_values, [f"{sheet_name}: {key}" for key in row_values]
+    return {}, []
+
+
+def supplier_id_from_name(name: str, position: int) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return f"imported-{slug or 'supplier'}-{position}"
+
+
+def extract_supplier_rows(
+    df: pd.DataFrame, sheet_name: str, supplier_field_lookup: dict[str, str]
+) -> list[dict[str, Any]]:
+    suppliers = []
+    for header_idx in range(min(len(df), 30)):
+        columns = mapped_columns(df.iloc[header_idx], supplier_field_lookup)
+        if "name" not in columns.values() or len(columns) < 2:
+            continue
+        for row_idx in range(header_idx + 1, len(df)):
+            raw_name = next(
+                (df.iat[row_idx, col_idx] for col_idx, key in columns.items() if key == "name"),
+                "",
+            )
+            name = clean_cell(raw_name)
+            if not name:
+                continue
+            supplier = {
+                "id": supplier_id_from_name(name, row_idx),
+                "name": name,
+                "country": "",
+                "region": "",
+                "website": "",
+                "product_match": "",
+                "certifications": "",
+                "annual_capacity": 0,
+                "customer_notes": f"Imported from {sheet_name}",
+                "confidence_level": "Needs Manual Review",
+                "values": default_values(),
+            }
+            for col_idx, key in columns.items():
+                value = coerce_supplier_value(key, df.iat[row_idx, col_idx])
+                if value is None:
+                    continue
+                if key in SUPPLIER_FIELD_ALIASES:
+                    supplier[key] = value
+                elif key in supplier["values"]:
+                    supplier["values"][key] = value
+            suppliers.append(supplier)
+        if suppliers:
+            return suppliers
+    return suppliers
+
+
+def parse_sourcing_workbook(file_bytes: bytes) -> dict[str, Any]:
+    result = {"requirement": {}, "suppliers": [], "matches": [], "errors": []}
+    requirement_lookup = alias_lookup(REQUIREMENT_FIELD_ALIASES)
+    supplier_field_lookup = supplier_lookup()
+    try:
+        sheets = pd.read_excel(BytesIO(file_bytes), sheet_name=None, header=None, dtype=object)
+    except Exception as error:  # noqa: BLE001 - Streamlit should show a friendly parsing error.
+        result["errors"].append(f"Could not read workbook: {error}")
+        return result
+
+    for sheet_name, df in sheets.items():
+        clean_df = df.dropna(how="all").dropna(axis=1, how="all")
+        if clean_df.empty:
+            continue
+        key_values, key_matches = extract_key_value_requirements(clean_df, sheet_name, requirement_lookup)
+        wide_values, wide_matches = extract_wide_requirements(clean_df, sheet_name, requirement_lookup)
+        for key, value in {**key_values, **wide_values}.items():
+            result["requirement"].setdefault(key, value)
+        result["matches"].extend(key_matches + wide_matches)
+        result["suppliers"].extend(extract_supplier_rows(clean_df, sheet_name, supplier_field_lookup))
+    return result
+
+
+def merge_imported_supplier(imported_supplier: dict[str, Any]) -> None:
+    imported_name = normalize_label(imported_supplier["name"])
+    existing_supplier = next(
+        (supplier for supplier in st.session_state.suppliers if normalize_label(supplier["name"]) == imported_name),
+        None,
+    )
+    if existing_supplier is None:
+        st.session_state.suppliers.append(imported_supplier)
+        return
+    for key in [
+        "country",
+        "region",
+        "website",
+        "product_match",
+        "certifications",
+        "annual_capacity",
+        "customer_notes",
+        "confidence_level",
+    ]:
+        if imported_supplier.get(key) not in {"", 0, None}:
+            existing_supplier[key] = imported_supplier[key]
+    for key, value in imported_supplier["values"].items():
+        if value not in {"", 0, 0.0, None}:
+            existing_supplier["values"][key] = value
+
+
+def apply_sourcing_import(parsed: dict[str, Any]) -> None:
+    for key, value in parsed["requirement"].items():
+        if value not in {"", None}:
+            st.session_state.requirement[key] = value
+    for supplier in parsed["suppliers"]:
+        merge_imported_supplier(supplier)
 
 
 COMMON_VALUES = {
@@ -1131,7 +1436,7 @@ def render_guide(requirement: dict[str, Any], metrics: list[dict[str, Any]]) -> 
     st.markdown("### Workflow")
     st.markdown(
         """
-        1. Open **Product Intake** and enter the product, volume, quality, compliance, lead-time, and delivery requirements.
+        1. Open **Product Intake** and enter the product, volume, quality, compliance, lead-time, and delivery requirements, or upload a sourcing Excel file to prefill matching fields.
         2. Open **Supplier Discovery** and add suppliers manually, or use **AI Suggested Supplier** for clearly labeled placeholder options.
         3. Open **Framework Table** and fill in cost, lead-time, capability, risk, logistics, and contract assumptions.
         4. Open **Framework Weights** to tune the category weights and individual field weights.
@@ -1153,9 +1458,74 @@ def render_guide(requirement: dict[str, Any], metrics: list[dict[str, Any]]) -> 
     )
 
 
+def render_excel_importer() -> None:
+    with st.expander("Upload sourcing Excel file", expanded=False):
+        st.caption(
+            "Upload an .xlsx workbook to extract matching product requirements and supplier rows. Empty or unmatched fields stay blank."
+        )
+        uploaded_file = st.file_uploader(
+            "Sourcing Excel workbook",
+            type=["xlsx", "xlsm"],
+            key="sourcing_excel_upload",
+        )
+        if uploaded_file is None:
+            return
+
+        parsed = parse_sourcing_workbook(uploaded_file.getvalue())
+        if parsed["errors"]:
+            st.error(parsed["errors"][0])
+            return
+
+        req_count = len(parsed["requirement"])
+        supplier_count = len(parsed["suppliers"])
+        summary_cols = st.columns(2)
+        summary_cols[0].metric("Requirement fields found", req_count)
+        summary_cols[1].metric("Supplier rows found", supplier_count)
+
+        if req_count == 0 and supplier_count == 0:
+            st.info(
+                "No matching fields were found. Try headers like Product Name, Quantity, Target Cost, Supplier Name, Country, Unit Cost, MOQ, or Lead Time."
+            )
+            return
+
+        if req_count:
+            st.markdown("#### Requirement preview")
+            requirement_preview = pd.DataFrame(
+                [
+                    {"Field": key.replace("_", " ").title(), "Value": value}
+                    for key, value in parsed["requirement"].items()
+                ]
+            )
+            st.dataframe(requirement_preview, width="stretch", hide_index=True)
+
+        if supplier_count:
+            st.markdown("#### Supplier preview")
+            supplier_preview = pd.DataFrame(
+                [
+                    {
+                        "Supplier": supplier["name"],
+                        "Country": supplier["country"],
+                        "Region": supplier["region"],
+                        "Capacity": supplier["annual_capacity"] or "",
+                        "Confidence": supplier["confidence_level"],
+                    }
+                    for supplier in parsed["suppliers"]
+                ]
+            )
+            st.dataframe(supplier_preview.head(25), width="stretch", hide_index=True)
+
+        if st.button("Apply extracted data", type="primary", width="stretch"):
+            apply_sourcing_import(parsed)
+            st.success(
+                f"Applied {req_count} requirement fields and {supplier_count} supplier rows from the workbook."
+            )
+
+
 def render_intake(requirement: dict[str, Any], review: dict[str, Any]) -> None:
     st.subheader("Product Requirement Intake")
     st.caption("Define the product, quality, compliance, demand, and delivery constraints.")
+    render_excel_importer()
+
     col1, col2 = st.columns(2)
     with col1:
         requirement["product_name"] = st.text_input("Product name", requirement["product_name"])
