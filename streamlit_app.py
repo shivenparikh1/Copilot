@@ -26,22 +26,40 @@ st.set_page_config(
 
 CONFIDENCE_LEVELS = [
     "Verified",
-    "Estimated",
-    "AI Suggested",
-    "Needs Manual Review",
+    "Supplier Quote",
+    "Public Estimate",
+    "AI Estimate",
+    "Manual Review Needed",
     "Unavailable Online",
 ]
+
+CONFIDENCE_SCORE_MAP = {
+    "Verified": 5,
+    "Supplier Quote": 4,
+    "Public Estimate": 3,
+    "AI Estimate": 2,
+    "Manual Review Needed": 1,
+    "Unavailable Online": 1,
+}
+
+CONFIDENCE_ALIASES = {
+    "estimated": "Public Estimate",
+    "ai suggested": "AI Estimate",
+    "needs manual review": "Manual Review Needed",
+}
 
 CRITICALITY_LEVELS = ["Low", "Medium", "High", "Critical"]
 
 DEFAULT_WEIGHTS = {
-    "landed_cost": 20,
-    "tco": 15,
-    "lead_time": 15,
+    "landed_cost": 15,
+    "tco": 10,
+    "lead_time": 12,
     "capability": 15,
     "quality_risk": 15,
-    "geopolitical_risk": 10,
-    "logistics": 5,
+    "compliance": 8,
+    "geopolitical_risk": 8,
+    "logistics": 7,
+    "financial_stability": 5,
     "contract": 5,
 }
 
@@ -51,8 +69,10 @@ WEIGHT_LABELS = {
     "lead_time": "Lead Time",
     "capability": "Supplier Capability",
     "quality_risk": "Quality Risk",
+    "compliance": "Compliance",
     "geopolitical_risk": "Geopolitical Risk",
-    "logistics": "Logistics Complexity",
+    "logistics": "Logistics Risk",
+    "financial_stability": "Financial Stability",
     "contract": "Contract Terms",
 }
 
@@ -74,6 +94,105 @@ NEWS_TOPICS = {
 }
 
 NEWS_LOOKBACK_DAYS = 30
+
+SCORE_EXPLANATIONS = [
+    {
+        "title": "Total Landed Cost Score",
+        "measures": "Direct per-unit cost to get the product to the destination.",
+        "subfactors": "Unit cost, freight, tariffs and duties, insurance, customs brokerage, packaging, and warehousing.",
+        "direction": "Lower landed cost is better.",
+        "calculation": "Total Landed Cost per Unit = Unit Cost + Freight Cost + Tariffs and Duties + Insurance + Customs Brokerage + Packaging + Warehousing. Suppliers are normalized from 1 to 5 across the current comparison set, then converted to 100-point display scores.",
+        "why": "A low quote is not enough; this shows the real cost after freight, import, and handling assumptions.",
+    },
+    {
+        "title": "Total Cost of Ownership Score",
+        "measures": "The broader unit economics after ownership and risk costs are included.",
+        "subfactors": "Total landed cost, quality failure cost, expedite cost, inventory holding cost, supplier switching cost, warranty exposure, stockout risk cost, and requalification cost.",
+        "direction": "Lower TCO is better.",
+        "calculation": "TCO per Unit = Total Landed Cost per Unit + Quality Failure Cost + Expedite Cost + Inventory Holding Cost + Supplier Switching Cost + Warranty Exposure + Stockout Risk Cost + Requalification Cost. Suppliers are normalized from 1 to 5 across the comparison set.",
+        "why": "It prevents a low unit price from hiding quality, inventory, service, and qualification costs.",
+    },
+    {
+        "title": "Lead Time Score",
+        "measures": "The expected end-to-end sourcing and replenishment timeline.",
+        "subfactors": "Production lead time, raw material lead time, supplier planning time, inspection time, export clearance, transit, customs clearance, receiving, buffer time, and reorder review cycle.",
+        "direction": "Lower lead time is better.",
+        "calculation": "Total Lead Time = Production Lead Time + Raw Material Lead Time + Planning Time + Inspection Time + Export Clearance + Transit Time + Customs Clearance + Receiving Time + Buffer Time. The scoring basis also considers the reorder review cycle.",
+        "why": "Lead time affects working capital, service risk, and how quickly the sourcing plan can respond to demand changes.",
+    },
+    {
+        "title": "Supplier Capability Score",
+        "measures": "Whether the supplier can actually perform beyond the attractiveness of the quote.",
+        "subfactors": "Volume capability, equipment/process fit, certifications, scalability, engineering support, compliance understanding, documentation ability, backup capacity, factory dependency, relevant industry experience, and existing customer quality.",
+        "direction": "Higher capability is better.",
+        "calculation": "Capability subfactors are scored 1 to 5 and averaged with editable field weights.",
+        "why": "A supplier must be able to meet demand, quality, documentation, and compliance needs over time.",
+    },
+    {
+        "title": "Quality Risk Score",
+        "measures": "The likelihood of defects, poor controls, weak inspection, or field issues.",
+        "subfactors": "Defect rate, process control, inspection method, quality certifications, traceability, corrective actions, audit results, warranty claims, return rate, and field failure risk.",
+        "direction": "Lower risk is better.",
+        "calculation": "Risk inputs use a 1 to 5 scale. The score uses Risk-adjusted score = 6 - risk score, then averages the adjusted subfactors.",
+        "why": "Quality risk can quickly erase savings through scrap, returns, warranty exposure, and launch delays.",
+    },
+    {
+        "title": "Compliance Risk Score",
+        "measures": "Supplier readiness for required product, trade, environmental, labor, and documentation obligations.",
+        "subfactors": "Required certifications, product safety compliance, import/export compliance, environmental compliance, labor and ethical sourcing, documentation completeness, restricted material risk, audit readiness, and traceability documentation.",
+        "direction": "Higher readiness and lower risk are better.",
+        "calculation": "Positive compliance factors use 1 to 5 scoring. Risk factors use Risk-adjusted score = 6 - risk score.",
+        "why": "Compliance gaps can block import, delay qualification, or create legal and customer risk.",
+    },
+    {
+        "title": "Geopolitical Risk Score",
+        "measures": "Country, policy, sanctions, conflict, currency, and trade exposure.",
+        "subfactors": "Tariff exposure, trade war exposure, export controls, sanctions, political instability, military conflict, currency instability, government policy changes, single-country dependency, and friendshoring or nearshoring advantage.",
+        "direction": "Lower risk and stronger friendly-region advantage are better.",
+        "calculation": "Risk factors use Risk-adjusted score = 6 - risk score. Positive advantage factors use direct 1 to 5 scoring.",
+        "why": "Country and trade risk can change landed cost, supply continuity, and customer acceptability.",
+    },
+    {
+        "title": "Logistics Risk Score",
+        "measures": "Transportation, import, warehouse, and delivery complexity.",
+        "subfactors": "Distance to delivery location, freight mode complexity, port congestion, container availability, customs complexity, HS code uncertainty, import documentation risk, incoterms complexity, 3PL dependency, last-mile complexity, and warehouse requirement.",
+        "direction": "Lower logistics risk is better.",
+        "calculation": "Risk inputs use Risk-adjusted score = 6 - risk score and are averaged with editable field weights.",
+        "why": "Logistics issues often turn into hidden cost, late delivery, and poor launch reliability.",
+    },
+    {
+        "title": "Financial Stability Score",
+        "measures": "The supplier's ability to remain solvent, invest, and support the program over time.",
+        "subfactors": "Years in business, revenue stability, customer diversity, credit/payment risk, bankruptcy risk, customer overdependence, ability to invest in capacity, and ownership transparency.",
+        "direction": "Higher stability and lower financial risk are better.",
+        "calculation": "Positive factors use 1 to 5 scoring. Financial risk factors use Risk-adjusted score = 6 - risk score.",
+        "why": "A supplier with weak finances can fail during ramp, delay capacity investment, or create continuity risk.",
+    },
+    {
+        "title": "Contract Terms Score",
+        "measures": "How favorable and protective the commercial agreement is.",
+        "subfactors": "Payment terms, MOQ flexibility, volume discounts, lead-time commitments, service levels, warranty, liability, penalties, IP protection, termination flexibility, capacity reservation, and forecast commitment burden.",
+        "direction": "Better terms and lower buyer burden are better.",
+        "calculation": "Positive contract factors use 1 to 5 scoring. Burden and risk factors use Risk-adjusted score = 6 - risk score.",
+        "why": "Contract terms decide how much risk remains after supplier selection.",
+    },
+    {
+        "title": "Data Confidence Score",
+        "measures": "How reliable the supplier data is.",
+        "subfactors": "Verified supplier data, supplier-provided quotes, public estimates, AI estimates, manual review needs, and unavailable online data.",
+        "direction": "Higher confidence is better, but it does not replace supplier performance.",
+        "calculation": "Verified = 5, Supplier Quote = 4, Public Estimate = 3, AI Estimate = 2, Manual Review Needed or Unavailable Online = 1.",
+        "why": "Estimated or AI-filled supplier data should not look as reliable as verified supplier evidence.",
+    },
+    {
+        "title": "Manual Review Flags",
+        "measures": "Important gaps or risk triggers that need human validation before award.",
+        "subfactors": "Missing quality certification data, missing payment terms, missing compliance documentation, lead-time verification, tariff/duty review, unverified capability, low data confidence, high geopolitical risk, high logistics risk, and critical parts without backup suppliers.",
+        "direction": "Fewer flags are better.",
+        "calculation": "Flags are generated with rule-based checks on missing fields, low confidence, and high risk scores.",
+        "why": "Flags keep the scorecard honest by showing what still needs validation.",
+    },
+]
 
 BLANK_REQUIREMENT = {
     "product_name": "",
@@ -183,6 +302,9 @@ FRAMEWORK_SECTIONS = {
             ("expedite_cost", "Expedite cost", "currency"),
             ("inventory_holding_cost", "Inventory holding cost", "currency"),
             ("supplier_switching_cost", "Supplier switching cost", "currency"),
+            ("warranty_exposure", "Warranty exposure", "currency"),
+            ("stockout_risk_cost", "Stockout risk cost", "currency"),
+            ("requalification_cost", "Requalification cost", "currency"),
         ],
     },
     "lead_time": {
@@ -208,13 +330,14 @@ FRAMEWORK_SECTIONS = {
             ("volume_capability", "Volume capability score", "score"),
             ("equipment_capability", "Equipment capability score", "score"),
             ("quality_certification", "Quality certification score", "score"),
-            ("financial_stability", "Financial stability score", "score"),
             ("scaling_ability", "Scaling ability score", "score"),
             ("engineering_support", "Engineering support score", "score"),
             ("compliance_understanding", "Compliance understanding score", "score"),
             ("documentation_ability", "Documentation ability score", "score"),
             ("single_factory_dependency", "Single factory dependency score", "score"),
             ("backup_capacity", "Backup capacity score", "score"),
+            ("industry_experience", "Relevant industry experience", "score"),
+            ("existing_customer_quality", "Existing customer quality", "score"),
         ],
     },
     "quality_risk": {
@@ -233,9 +356,24 @@ FRAMEWORK_SECTIONS = {
             ("field_failure_risk", "Field failure risk score", "risk"),
         ],
     },
+    "compliance": {
+        "label": "Compliance Risk",
+        "description": "Compliance readiness scores from 1 weak/high risk to 5 strong/low risk.",
+        "fields": [
+            ("required_certifications_available", "Required certifications available", "score"),
+            ("product_safety_compliance", "Product safety compliance", "score"),
+            ("import_export_compliance", "Import/export compliance", "score"),
+            ("environmental_compliance", "Environmental compliance", "score"),
+            ("labor_ethical_sourcing", "Labor and ethical sourcing compliance", "score"),
+            ("documentation_completeness", "Documentation completeness", "score"),
+            ("restricted_material_risk", "Restricted material risk", "risk"),
+            ("audit_readiness", "Audit readiness", "score"),
+            ("compliance_traceability_documentation", "Traceability documentation", "score"),
+        ],
+    },
     "geopolitical_risk": {
         "label": "Geopolitical Risk",
-        "description": "Country and trade exposure scores from 1 low to 5 high.",
+        "description": "Country and trade exposure scores from 1 very low risk to 5 very high risk.",
         "fields": [
             ("trade_war_exposure", "Trade war exposure", "risk"),
             ("tariff_risk", "Tariff risk", "risk"),
@@ -248,12 +386,15 @@ FRAMEWORK_SECTIONS = {
             ("currency_instability_risk", "Currency instability risk", "risk"),
             ("government_policy_risk", "Government policy risk", "risk"),
             ("single_country_dependency_risk", "Single country dependency risk", "risk"),
+            ("friendshoring_nearshoring_advantage", "Friendshoring/nearshoring advantage", "score"),
         ],
     },
     "logistics": {
-        "label": "Logistics Complexity",
+        "label": "Logistics Risk",
         "description": "Logistics and import complexity scores from 1 low to 5 high.",
         "fields": [
+            ("distance_to_delivery_risk", "Distance to delivery location", "risk"),
+            ("freight_mode_complexity", "Freight mode complexity", "risk"),
             ("incoterms_complexity", "Incoterms complexity", "risk"),
             ("ocean_freight_risk", "Ocean freight risk", "risk"),
             ("air_freight_risk", "Air freight risk", "risk"),
@@ -270,13 +411,31 @@ FRAMEWORK_SECTIONS = {
             ("duties_taxes_risk", "Duties and taxes risk", "risk"),
         ],
     },
+    "financial_stability": {
+        "label": "Financial Stability",
+        "description": "Supplier financial resilience scores from 1 weak/high risk to 5 strong/low risk.",
+        "fields": [
+            ("years_in_business_score", "Years in business", "score"),
+            ("revenue_stability", "Revenue stability", "score"),
+            ("customer_base_diversity", "Customer base diversity", "score"),
+            ("credit_payment_risk", "Credit/payment risk", "risk"),
+            ("bankruptcy_closure_risk", "Bankruptcy/closure risk", "risk"),
+            ("customer_overdependence_risk", "Overdependence on one customer", "risk"),
+            ("capacity_investment_ability", "Ability to invest in capacity", "score"),
+            ("ownership_transparency", "Ownership transparency", "score"),
+            ("financial_stability", "Overall financial stability", "score"),
+        ],
+    },
     "contract": {
         "label": "Contract Terms",
         "description": "Commercial terms and contract quality assumptions.",
         "fields": [
             ("contract_payment_terms", "Payment terms", "text"),
+            ("payment_terms_score", "Payment terms favorability", "score"),
             ("contract_moq", "MOQ", "number"),
+            ("moq_flexibility", "MOQ flexibility", "score"),
             ("volume_discounts", "Volume discounts", "text"),
+            ("volume_discount_availability", "Volume discount availability", "score"),
             ("price_adjustment_clause", "Price adjustment clause", "score"),
             ("lead_time_commitment", "Lead time commitment", "score"),
             ("service_level_agreement", "Service level agreement", "score"),
@@ -308,6 +467,9 @@ OWNERSHIP_COST_KEYS = [
     "expedite_cost",
     "inventory_holding_cost",
     "supplier_switching_cost",
+    "warranty_exposure",
+    "stockout_risk_cost",
+    "requalification_cost",
 ]
 
 LEAD_TIME_KEYS = [
@@ -321,6 +483,8 @@ LEAD_TIME_KEYS = [
     "receiving_putaway_time",
     "buffer_time",
 ]
+
+LEAD_TIME_SCORE_KEYS = LEAD_TIME_KEYS + ["reorder_review_cycle"]
 
 
 def default_values() -> dict[str, Any]:
@@ -385,6 +549,16 @@ def normalize_label(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", " ", clean_cell(value).lower()).strip()
 
 
+def normalize_confidence_level(value: Any) -> str:
+    normalized = normalize_label(value)
+    if normalized in CONFIDENCE_ALIASES:
+        return CONFIDENCE_ALIASES[normalized]
+    for level in CONFIDENCE_LEVELS:
+        if normalize_label(level) == normalized:
+            return level
+    return "Manual Review Needed"
+
+
 def alias_lookup(alias_map: dict[str, list[str]]) -> dict[str, str]:
     lookup: dict[str, str] = {}
     for key, aliases in alias_map.items():
@@ -435,16 +609,12 @@ def coerce_supplier_value(key: str, value: Any) -> Any:
     if key == "annual_capacity":
         return int(numeric(value))
     if key == "confidence_level":
-        normalized = normalize_label(text_value)
-        for level in CONFIDENCE_LEVELS:
-            if normalize_label(level) == normalized:
-                return level
-        return "Needs Manual Review"
+        return normalize_confidence_level(text_value)
     kind = field_kind(key)
     if kind == "text":
         return text_value
     if kind in {"score", "risk"}:
-        return max(0.0, min(5.0, numeric(value)))
+        return max(1.0, min(5.0, numeric(value) or 3.0))
     return numeric(value)
 
 
@@ -543,7 +713,7 @@ def extract_supplier_rows(
                 "certifications": "",
                 "annual_capacity": 0,
                 "customer_notes": f"Imported from {sheet_name}",
-                "confidence_level": "Needs Manual Review",
+                "confidence_level": "Manual Review Needed",
                 "values": default_values(),
             }
             for col_idx, key in columns.items():
@@ -633,6 +803,9 @@ COMMON_VALUES = {
     "expedite_cost": 0.18,
     "inventory_holding_cost": 0.30,
     "supplier_switching_cost": 0.16,
+    "warranty_exposure": 0.12,
+    "stockout_risk_cost": 0.10,
+    "requalification_cost": 0.08,
     "production_lead_time": 28,
     "raw_materials_lead_time": 14,
     "supplier_planning_time": 4,
@@ -653,6 +826,8 @@ COMMON_VALUES = {
     "documentation_ability": 4,
     "single_factory_dependency": 3,
     "backup_capacity": 3,
+    "industry_experience": 4,
+    "existing_customer_quality": 4,
     "defect_rate_risk": 2,
     "process_control_risk": 2,
     "inspection_method_risk": 2,
@@ -663,6 +838,15 @@ COMMON_VALUES = {
     "warranty_claim_risk": 2,
     "return_rate_risk": 2,
     "field_failure_risk": 2,
+    "required_certifications_available": 4,
+    "product_safety_compliance": 4,
+    "import_export_compliance": 4,
+    "environmental_compliance": 4,
+    "labor_ethical_sourcing": 4,
+    "documentation_completeness": 4,
+    "restricted_material_risk": 2,
+    "audit_readiness": 4,
+    "compliance_traceability_documentation": 4,
     "trade_war_exposure": 2,
     "tariff_risk": 2,
     "export_control_risk": 2,
@@ -674,6 +858,9 @@ COMMON_VALUES = {
     "currency_instability_risk": 2,
     "government_policy_risk": 2,
     "single_country_dependency_risk": 3,
+    "friendshoring_nearshoring_advantage": 3,
+    "distance_to_delivery_risk": 3,
+    "freight_mode_complexity": 2,
     "incoterms_complexity": 2,
     "ocean_freight_risk": 3,
     "air_freight_risk": 2,
@@ -688,9 +875,20 @@ COMMON_VALUES = {
     "import_documentation_risk": 2,
     "hs_code_risk": 2,
     "duties_taxes_risk": 2,
+    "years_in_business_score": 4,
+    "revenue_stability": 4,
+    "customer_base_diversity": 4,
+    "credit_payment_risk": 2,
+    "bankruptcy_closure_risk": 1,
+    "customer_overdependence_risk": 2,
+    "capacity_investment_ability": 4,
+    "ownership_transparency": 4,
     "contract_payment_terms": "Net 45 after inspection",
+    "payment_terms_score": 4,
     "contract_moq": 25000,
+    "moq_flexibility": 3,
     "volume_discounts": "2% over 75k units",
+    "volume_discount_availability": 4,
     "price_adjustment_clause": 4,
     "lead_time_commitment": 4,
     "service_level_agreement": 4,
@@ -723,6 +921,9 @@ SAMPLE_SUPPLIERS = [
             "freight_cost": 0.82,
             "tariffs_duty": 0.48,
             "inventory_holding_cost": 0.28,
+            "warranty_exposure": 0.10,
+            "stockout_risk_cost": 0.08,
+            "requalification_cost": 0.06,
             "production_lead_time": 30,
             "transit_time": 22,
             "buffer_time": 6,
@@ -730,9 +931,19 @@ SAMPLE_SUPPLIERS = [
             "scaling_ability": 4,
             "engineering_support": 4,
             "backup_capacity": 4,
+            "industry_experience": 5,
+            "existing_customer_quality": 4,
+            "required_certifications_available": 5,
+            "documentation_completeness": 5,
+            "audit_readiness": 5,
             "port_congestion_risk": 2,
+            "financial_stability": 4,
+            "revenue_stability": 4,
+            "customer_base_diversity": 4,
             "contract_payment_terms": "Net 60 after PPAP approval",
+            "payment_terms_score": 5,
             "contract_moq": 30000,
+            "moq_flexibility": 3,
             "capacity_reservation": 4,
         },
     },
@@ -746,7 +957,7 @@ SAMPLE_SUPPLIERS = [
         "certifications": "ISO 9001; IATF data pending",
         "annual_capacity": 340000,
         "customer_notes": "Pricing attractive, but certification data needs manual validation.",
-        "confidence_level": "Needs Manual Review",
+        "confidence_level": "Supplier Quote",
         "values": {
             **COMMON_VALUES,
             "unit_cost": 7.92,
@@ -758,6 +969,9 @@ SAMPLE_SUPPLIERS = [
             "currency_risk": 3,
             "quality_failure_cost": 0.36,
             "supplier_switching_cost": 0.22,
+            "warranty_exposure": 0.18,
+            "stockout_risk_cost": 0.18,
+            "requalification_cost": 0.14,
             "production_lead_time": 24,
             "raw_materials_lead_time": 12,
             "transit_time": 26,
@@ -765,19 +979,35 @@ SAMPLE_SUPPLIERS = [
             "quality_certification": 3,
             "compliance_understanding": 3,
             "documentation_ability": 3,
+            "industry_experience": 4,
+            "existing_customer_quality": 3,
             "defect_rate_risk": 3,
             "certification_risk": 4,
             "traceability_risk": 3,
             "audit_result_risk": 3,
+            "required_certifications_available": 3,
+            "product_safety_compliance": 3,
+            "documentation_completeness": 2,
+            "restricted_material_risk": 3,
+            "audit_readiness": 2,
+            "compliance_traceability_documentation": 3,
             "trade_war_exposure": 4,
             "tariff_risk": 4,
             "export_control_risk": 3,
             "government_policy_risk": 3,
             "single_country_dependency_risk": 4,
+            "friendshoring_nearshoring_advantage": 2,
             "duties_taxes_risk": 4,
+            "financial_stability": 3,
+            "credit_payment_risk": 3,
+            "customer_overdependence_risk": 3,
+            "ownership_transparency": 3,
             "contract_payment_terms": "30% deposit, balance before shipment",
+            "payment_terms_score": 2,
             "contract_moq": 40000,
+            "moq_flexibility": 2,
             "volume_discounts": "4% over 120k units",
+            "volume_discount_availability": 4,
             "liability_terms": 2,
             "ip_protection": 3,
             "forecast_commitments": 3,
@@ -793,7 +1023,7 @@ SAMPLE_SUPPLIERS = [
         "certifications": "ISO 9001, IATF 16949, USMCA documentation",
         "annual_capacity": 145000,
         "customer_notes": "Estimated cost from benchmark quote. Strong logistics profile.",
-        "confidence_level": "Estimated",
+        "confidence_level": "Public Estimate",
         "values": {
             **COMMON_VALUES,
             "unit_cost": 9.35,
@@ -806,6 +1036,9 @@ SAMPLE_SUPPLIERS = [
             "quality_failure_cost": 0.18,
             "expedite_cost": 0.08,
             "inventory_holding_cost": 0.16,
+            "warranty_exposure": 0.08,
+            "stockout_risk_cost": 0.06,
+            "requalification_cost": 0.06,
             "production_lead_time": 20,
             "raw_materials_lead_time": 10,
             "export_clearance_time": 1,
@@ -816,6 +1049,8 @@ SAMPLE_SUPPLIERS = [
             "volume_capability": 3,
             "scaling_ability": 3,
             "backup_capacity": 3,
+            "industry_experience": 4,
+            "existing_customer_quality": 3,
             "defect_rate_risk": 2,
             "process_control_risk": 2,
             "warranty_claim_risk": 1,
@@ -825,14 +1060,23 @@ SAMPLE_SUPPLIERS = [
             "port_disruption_risk": 1,
             "currency_instability_risk": 3,
             "single_country_dependency_risk": 2,
+            "friendshoring_nearshoring_advantage": 5,
+            "distance_to_delivery_risk": 1,
+            "freight_mode_complexity": 1,
             "incoterms_complexity": 1,
             "ocean_freight_risk": 1,
             "port_congestion_risk": 1,
             "freight_forwarder_requirement": 1,
             "import_documentation_risk": 1,
             "duties_taxes_risk": 1,
+            "financial_stability": 3,
+            "years_in_business_score": 3,
+            "customer_base_diversity": 3,
+            "capacity_investment_ability": 3,
             "contract_payment_terms": "Net 30 after receipt",
+            "payment_terms_score": 4,
             "contract_moq": 15000,
+            "moq_flexibility": 5,
             "lead_time_commitment": 5,
             "service_level_agreement": 4,
             "penalties": 4,
@@ -874,13 +1118,30 @@ def add_css() -> None:
     )
 
 
+def migrate_supplier_record(supplier: dict[str, Any]) -> None:
+    supplier["confidence_level"] = normalize_confidence_level(supplier.get("confidence_level", ""))
+    if "values" not in supplier or not isinstance(supplier["values"], dict):
+        supplier["values"] = default_values()
+    defaults = default_values()
+    for key, value in defaults.items():
+        supplier["values"].setdefault(key, value)
+
+
 def initialize_state() -> None:
     if "requirement" not in st.session_state:
         st.session_state.requirement = deepcopy(BLANK_REQUIREMENT)
     if "suppliers" not in st.session_state:
         st.session_state.suppliers = []
+    for supplier in st.session_state.suppliers:
+        migrate_supplier_record(supplier)
     if "weights" not in st.session_state:
         st.session_state.weights = deepcopy(DEFAULT_WEIGHTS)
+    else:
+        for key, value in DEFAULT_WEIGHTS.items():
+            st.session_state.weights.setdefault(key, value)
+        for key in list(st.session_state.weights.keys()):
+            if key not in DEFAULT_WEIGHTS:
+                del st.session_state.weights[key]
     if "field_weights" not in st.session_state:
         st.session_state.field_weights = default_field_weights()
     else:
@@ -976,48 +1237,124 @@ def short_name(name: str) -> str:
     return " ".join(parts[:2]) or name
 
 
-def average_section(supplier: dict[str, Any], section_key: str, field_weights: dict[str, float]) -> float:
-    fields = FRAMEWORK_SECTIONS[section_key]["fields"]
-    keys = [key for key, _label, kind in fields if kind in {"score", "risk"}]
-    if not keys:
-        return 0.0
-    total_weight = sum(field_weight(field_weights, key) for key in keys)
+def bounded_score(value: Any, default: float = 3.0) -> float:
+    number = numeric(value)
+    if number <= 0:
+        number = default
+    return max(1.0, min(5.0, number))
+
+
+def calculate_landed_cost(supplier: dict[str, Any]) -> float:
+    return sum(supplier_numeric(supplier, key) for key in LANDED_COST_KEYS)
+
+
+def calculate_tco(supplier: dict[str, Any]) -> float:
+    return calculate_landed_cost(supplier) + sum(
+        supplier_numeric(supplier, key) for key in OWNERSHIP_COST_KEYS
+    )
+
+
+def calculate_total_lead_time(supplier: dict[str, Any]) -> float:
+    return sum(supplier_numeric(supplier, key) for key in LEAD_TIME_KEYS)
+
+
+def calculate_average_score(subfactor_list: list[tuple[float, float]]) -> float:
+    total_weight = sum(weight for _value, weight in subfactor_list)
     if total_weight <= 0:
-        return 0.0
-    return sum(supplier_numeric(supplier, key) * field_weight(field_weights, key) for key in keys) / total_weight
+        return 3.0
+    return sum(value * weight for value, weight in subfactor_list) / total_weight
 
 
-def average_contract_score(supplier: dict[str, Any], field_weights: dict[str, float]) -> float:
-    fields = FRAMEWORK_SECTIONS["contract"]["fields"]
-    scored = [(key, kind) for key, _label, kind in fields if kind in {"score", "risk"}]
-    if not scored:
-        return 0.0
-    total = 0.0
-    total_weight = 0.0
-    for key, kind in scored:
-        value = supplier_numeric(supplier, key)
-        weight = field_weight(field_weights, key)
-        total += (6 - value if kind == "risk" else value) * weight
-        total_weight += weight
+def convert_risk_to_score(risk_score: float) -> float:
+    return 6.0 - bounded_score(risk_score)
+
+
+def normalize_lower_is_better(value: float, min_value: float, max_value: float) -> float:
+    if max_value == min_value:
+        return 5.0
+    score = 5.0 - ((value - min_value) / (max_value - min_value)) * 4.0
+    return max(1.0, min(5.0, score))
+
+
+def score_to_100(score: float) -> int:
+    return int(round(bounded_score(score) * 20))
+
+
+def risk_average(
+    supplier: dict[str, Any], section_key: str, field_weights: dict[str, float]
+) -> float:
+    subfactors = []
+    for key, _label, kind in FRAMEWORK_SECTIONS[section_key]["fields"]:
+        if kind != "risk":
+            continue
+        subfactors.append((bounded_score(supplier_numeric(supplier, key)), field_weight(field_weights, key)))
+    return calculate_average_score(subfactors) if subfactors else 1.0
+
+
+def average_section_score(
+    supplier: dict[str, Any], section_key: str, field_weights: dict[str, float]
+) -> float:
+    subfactors = []
+    for key, _label, kind in FRAMEWORK_SECTIONS[section_key]["fields"]:
+        if kind not in {"score", "risk"}:
+            continue
+        raw_value = bounded_score(supplier_numeric(supplier, key))
+        score = convert_risk_to_score(raw_value) if kind == "risk" else raw_value
+        subfactors.append((score, field_weight(field_weights, key)))
+    return calculate_average_score(subfactors)
+
+
+def data_confidence_score(supplier: dict[str, Any]) -> int:
+    return CONFIDENCE_SCORE_MAP.get(normalize_confidence_level(supplier.get("confidence_level", "")), 1)
+
+
+def calculate_final_supplier_score(category_scores: dict[str, float], weights: dict[str, float]) -> int:
+    total_weight = sum(max(0.0, numeric(value)) for value in weights.values())
     if total_weight <= 0:
-        return 0.0
-    return total / total_weight
+        return 0
+    weighted_score = sum(
+        bounded_score(category_scores.get(key, 3.0)) * max(0.0, numeric(weights.get(key, 0.0)))
+        for key in DEFAULT_WEIGHTS
+    )
+    return int(round((weighted_score / total_weight) * 20))
 
 
-def score_to_100(score: float) -> float:
-    return max(0.0, min(100.0, ((score - 1) / 4) * 100))
+def generate_manual_review_flags(
+    supplier: dict[str, Any],
+    requirement: dict[str, Any] | None = None,
+    supplier_count: int = 0,
+    field_weights: dict[str, float] | None = None,
+) -> list[str]:
+    field_weights = field_weights or default_field_weights()
+    values = supplier.get("values", {})
+    certifications = str(supplier.get("certifications", "")).lower()
+    flags = []
 
-
-def risk_to_100(risk: float) -> float:
-    return max(0.0, min(100.0, ((5 - risk) / 4) * 100))
-
-
-def lower_is_better(value: float, values: list[float]) -> float:
-    low = min(values)
-    high = max(values)
-    if high == low:
-        return 88.0
-    return round(100 - ((value - low) / (high - low)) * 70)
+    if not certifications or "pending" in certifications or "unavailable" in certifications:
+        flags.append("Missing quality certification data")
+    if not str(values.get("contract_payment_terms") or values.get("cost_payment_terms") or "").strip():
+        flags.append("Missing payment terms")
+    if average_section_score(supplier, "compliance", field_weights) < 3:
+        flags.append("Missing compliance documentation")
+    if calculate_total_lead_time(supplier) <= 0 or data_confidence_score(supplier) <= 2:
+        flags.append("Lead time estimate needs verification")
+    if numeric(values.get("tariffs_duty")) <= 0 or bounded_score(values.get("tariff_risk")) >= 4:
+        flags.append("Tariff/duty estimate needs manual review")
+    if average_section_score(supplier, "capability", field_weights) < 3 or data_confidence_score(supplier) <= 2:
+        flags.append("Supplier capability not verified")
+    if data_confidence_score(supplier) < 3:
+        flags.append("Data confidence below 3")
+    if risk_average(supplier, "geopolitical_risk", field_weights) >= 4:
+        flags.append("High geopolitical risk")
+    if risk_average(supplier, "logistics", field_weights) >= 4:
+        flags.append("High logistics risk")
+    if (
+        requirement
+        and requirement.get("criticality") == "Critical"
+        and supplier_count < 2
+    ):
+        flags.append("Critical part with no backup supplier")
+    return list(dict.fromkeys(flags))
 
 
 def calculate_metrics(
@@ -1025,19 +1362,25 @@ def calculate_metrics(
     weights: dict[str, float],
     quantity: float,
     field_weights: dict[str, float],
+    requirement: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     base_metrics = []
     for supplier in suppliers:
-        landed = sum(supplier_numeric(supplier, key) for key in LANDED_COST_KEYS)
-        tco = landed + sum(supplier_numeric(supplier, key) for key in OWNERSHIP_COST_KEYS)
-        lead_time = sum(supplier_numeric(supplier, key) for key in LEAD_TIME_KEYS)
+        migrate_supplier_record(supplier)
+        landed = calculate_landed_cost(supplier)
+        tco = calculate_tco(supplier)
+        lead_time = calculate_total_lead_time(supplier)
         weighted_landed = weighted_sum(supplier, LANDED_COST_KEYS, field_weights)
         weighted_tco = weighted_landed + weighted_sum(supplier, OWNERSHIP_COST_KEYS, field_weights)
-        weighted_lead_time = weighted_sum(supplier, LEAD_TIME_KEYS, field_weights)
+        weighted_lead_time = weighted_sum(supplier, LEAD_TIME_SCORE_KEYS, field_weights)
         base_metrics.append(
             {
                 "supplier_id": supplier["id"],
                 "supplier_name": supplier["name"],
+                "country": supplier.get("country", ""),
+                "region": supplier.get("region", ""),
+                "confidence_level": normalize_confidence_level(supplier.get("confidence_level", "")),
+                "data_confidence_score": data_confidence_score(supplier),
                 "total_landed_cost": landed,
                 "total_cost_of_ownership": tco,
                 "total_order_cost": landed * quantity,
@@ -1046,51 +1389,114 @@ def calculate_metrics(
                 "weighted_landed_cost_basis": weighted_landed,
                 "weighted_tco_basis": weighted_tco,
                 "weighted_lead_time_basis": weighted_lead_time,
-                "capability_average": average_section(supplier, "capability", field_weights),
-                "quality_risk_average": average_section(supplier, "quality_risk", field_weights),
-                "geopolitical_risk_average": average_section(supplier, "geopolitical_risk", field_weights),
-                "logistics_risk_average": average_section(supplier, "logistics", field_weights),
-                "contract_score_average": average_contract_score(supplier, field_weights),
+                "capability_score": average_section_score(supplier, "capability", field_weights),
+                "quality_score": average_section_score(supplier, "quality_risk", field_weights),
+                "quality_risk_average": risk_average(supplier, "quality_risk", field_weights),
+                "compliance_score": average_section_score(supplier, "compliance", field_weights),
+                "compliance_risk_average": risk_average(supplier, "compliance", field_weights),
+                "geopolitical_score": average_section_score(supplier, "geopolitical_risk", field_weights),
+                "geopolitical_risk_average": risk_average(supplier, "geopolitical_risk", field_weights),
+                "logistics_score": average_section_score(supplier, "logistics", field_weights),
+                "logistics_risk_average": risk_average(supplier, "logistics", field_weights),
+                "financial_stability_score": average_section_score(
+                    supplier, "financial_stability", field_weights
+                ),
+                "contract_score": average_section_score(supplier, "contract", field_weights),
+                "manual_review_flags": generate_manual_review_flags(
+                    supplier, requirement, len(suppliers), field_weights
+                ),
             }
         )
 
     landed_values = [metric["weighted_landed_cost_basis"] for metric in base_metrics]
     tco_values = [metric["weighted_tco_basis"] for metric in base_metrics]
     lead_values = [metric["weighted_lead_time_basis"] for metric in base_metrics]
-    total_weight = max(sum(float(value) for value in weights.values()), 1)
 
     for metric in base_metrics:
-        landed_score = lower_is_better(metric["total_landed_cost"], landed_values)
-        tco_score = lower_is_better(metric["total_cost_of_ownership"], tco_values)
-        lead_score = lower_is_better(metric["total_lead_time"], lead_values)
-        capability_score = score_to_100(metric["capability_average"])
-        quality_score = risk_to_100(metric["quality_risk_average"])
-        geopolitical_score = risk_to_100(metric["geopolitical_risk_average"])
-        logistics_score = risk_to_100(metric["logistics_risk_average"])
-        contract_score = score_to_100(metric["contract_score_average"])
-        metric["dimension_scores"] = {
-            "Cost": round((landed_score + tco_score) / 2),
-            "Lead Time": round(lead_score),
-            "Capability": round(capability_score),
-            "Quality": round(quality_score),
-            "Geopolitical": round(geopolitical_score),
-            "Logistics": round(logistics_score),
-            "Contract": round(contract_score),
-        }
-        metric["final_score"] = round(
-            (
-                landed_score * weights["landed_cost"]
-                + tco_score * weights["tco"]
-                + lead_score * weights["lead_time"]
-                + capability_score * weights["capability"]
-                + quality_score * weights["quality_risk"]
-                + geopolitical_score * weights["geopolitical_risk"]
-                + logistics_score * weights["logistics"]
-                + contract_score * weights["contract"]
-            )
-            / total_weight
+        landed_score = normalize_lower_is_better(
+            metric["weighted_landed_cost_basis"], min(landed_values), max(landed_values)
         )
+        tco_score = normalize_lower_is_better(
+            metric["weighted_tco_basis"], min(tco_values), max(tco_values)
+        )
+        lead_score = normalize_lower_is_better(
+            metric["weighted_lead_time_basis"], min(lead_values), max(lead_values)
+        )
+        metric["category_scores"] = {
+            "landed_cost": landed_score,
+            "tco": tco_score,
+            "lead_time": lead_score,
+            "capability": metric["capability_score"],
+            "quality_risk": metric["quality_score"],
+            "compliance": metric["compliance_score"],
+            "geopolitical_risk": metric["geopolitical_score"],
+            "logistics": metric["logistics_score"],
+            "financial_stability": metric["financial_stability_score"],
+            "contract": metric["contract_score"],
+        }
+        metric["dimension_scores"] = {
+            "Landed Cost": score_to_100(landed_score),
+            "TCO": score_to_100(tco_score),
+            "Lead Time": score_to_100(lead_score),
+            "Capability": score_to_100(metric["capability_score"]),
+            "Quality": score_to_100(metric["quality_score"]),
+            "Compliance": score_to_100(metric["compliance_score"]),
+            "Geopolitical": score_to_100(metric["geopolitical_score"]),
+            "Logistics": score_to_100(metric["logistics_score"]),
+            "Financial Stability": score_to_100(metric["financial_stability_score"]),
+            "Contract Terms": score_to_100(metric["contract_score"]),
+        }
+        metric["final_score"] = calculate_final_supplier_score(metric["category_scores"], weights)
+    recommendation_labels = assign_recommendation_labels(base_metrics)
+    for metric in base_metrics:
+        metric["recommendation"] = recommendation_labels.get(metric["supplier_id"], "Review")
     return base_metrics
+
+
+def assign_recommendation_labels(metrics: list[dict[str, Any]]) -> dict[str, str]:
+    labels = {metric["supplier_id"]: [] for metric in metrics}
+    if not metrics:
+        return {}
+
+    by_score = sorted(metrics, key=lambda metric: metric["final_score"], reverse=True)
+    by_cost = sorted(metrics, key=lambda metric: metric["total_landed_cost"])
+    by_lead = sorted(metrics, key=lambda metric: metric["total_lead_time"])
+
+    labels[by_score[0]["supplier_id"]].append("Best Overall")
+    labels[by_cost[0]["supplier_id"]].append("Lowest Cost")
+    labels[by_lead[0]["supplier_id"]].append("Fastest Lead Time")
+
+    backup = next(
+        (
+            metric
+            for metric in by_score[1:]
+            if max(
+                metric["quality_risk_average"],
+                metric["geopolitical_risk_average"],
+                metric["logistics_risk_average"],
+            )
+            < 4
+            and metric["data_confidence_score"] >= 3
+        ),
+        None,
+    )
+    if backup:
+        labels[backup["supplier_id"]].append("Best Backup Supplier")
+
+    for metric in metrics:
+        if max(
+            metric["quality_risk_average"],
+            metric["geopolitical_risk_average"],
+            metric["logistics_risk_average"],
+        ) >= 4:
+            labels[metric["supplier_id"]].append("High Risk")
+        if metric["data_confidence_score"] < 3 or metric["manual_review_flags"]:
+            labels[metric["supplier_id"]].append("Manual Review Needed")
+
+    return {
+        supplier_id: ", ".join(dict.fromkeys(supplier_labels)) or "Review"
+        for supplier_id, supplier_labels in labels.items()
+    }
 
 
 def recommendation_summary(metrics: list[dict[str, Any]]) -> dict[str, dict[str, Any] | None]:
@@ -1108,8 +1514,10 @@ def recommendation_summary(metrics: list[dict[str, Any]]) -> dict[str, dict[str,
     by_risk = sorted(
         metrics,
         key=lambda metric: metric["quality_risk_average"]
+        + metric["compliance_risk_average"]
         + metric["geopolitical_risk_average"]
-        + metric["logistics_risk_average"],
+        + metric["logistics_risk_average"]
+        + (6 - metric["financial_stability_score"]),
         reverse=True,
     )
     return {
@@ -1118,7 +1526,17 @@ def recommendation_summary(metrics: list[dict[str, Any]]) -> dict[str, dict[str,
         "fastest_lead_time": by_lead[0],
         "highest_risk": by_risk[0],
         "backup_supplier": next(
-            (metric for metric in by_score if metric["supplier_id"] != by_score[0]["supplier_id"]),
+            (
+                metric
+                for metric in by_score[1:]
+                if max(
+                    metric["quality_risk_average"],
+                    metric["geopolitical_risk_average"],
+                    metric["logistics_risk_average"],
+                )
+                < 4
+                and metric["data_confidence_score"] >= 3
+            ),
             None,
         ),
     }
@@ -1195,11 +1613,12 @@ def build_insights(
     fastest = summary["fastest_lead_time"]
     if lowest and lowest["geopolitical_risk_average"] >= 3 and lowest != best:
         insights.append("This supplier has low unit cost but high geopolitical risk.")
-    if fastest and fastest["dimension_scores"]["Cost"] < 70 and fastest != lowest:
+    if fastest and fastest["dimension_scores"]["Landed Cost"] < 70 and fastest != lowest:
         insights.append("This supplier has the shortest lead time but weaker cost performance.")
     for supplier in suppliers:
         if (
-            supplier["confidence_level"] in {"Needs Manual Review", "Unavailable Online"}
+            normalize_confidence_level(supplier["confidence_level"])
+            in {"Manual Review Needed", "Unavailable Online", "AI Estimate"}
             or "pending" in supplier["certifications"].lower()
         ):
             insights.append(
@@ -1228,9 +1647,9 @@ def generate_memo(
     highest_risk = summary["highest_risk"]
     supplier_names = ", ".join(supplier["name"] for supplier in suppliers) or "No suppliers added"
     manual_items = [
-        f"{supplier['name']}: {supplier['confidence_level']}"
-        for supplier in suppliers
-        if supplier["confidence_level"] != "Verified"
+        f"{metric['supplier_name']}: {', '.join(metric['manual_review_flags'])}"
+        for metric in metrics
+        if metric.get("manual_review_flags")
     ]
     ranking = " | ".join(
         f"{idx + 1}. {metric['supplier_name']} ({metric['final_score']}/100)"
@@ -1244,12 +1663,13 @@ def generate_memo(
             f"Supplier options reviewed: {supplier_names}",
             "",
             f"Best supplier recommendation: {best['supplier_name'] if best else 'No recommendation available'} with a score of {best['final_score'] if best else 0}/100.",
+            f"Recommendation label: {best['recommendation'] if best else 'n/a'}.",
             f"Backup supplier recommendation: {backup['supplier_name'] if backup else 'Add another qualified supplier before award'}.",
             "",
             f"Cost summary: Lowest landed cost is {lowest['supplier_name'] if lowest else 'n/a'} at {format_currency(lowest['total_landed_cost']) if lowest else 'n/a'} per unit. Best overall supplier TCO is {format_currency(best['total_cost_of_ownership']) if best else 'n/a'} per unit.",
             f"Lead time summary: Fastest option is {fastest['supplier_name'] if fastest else 'n/a'} at {format_days(fastest['total_lead_time']) if fastest else 'n/a'}.",
             f"Major risks: Highest combined risk is {highest_risk['supplier_name'] if highest_risk else 'n/a'}; review quality, geopolitical, and logistics assumptions before award.",
-            f"Manual review items: {'; '.join(manual_items) if manual_items else 'No non-verified suppliers flagged.'}",
+            f"Manual review items: {'; '.join(manual_items) if manual_items else 'No manual review flags generated.'}",
             "",
             "Negotiation suggestions: Clarify included cost elements, lock lead-time commitments, request audit and traceability evidence, negotiate payment terms, document warranty and liability coverage, and reserve capacity for the forecast demand.",
             "",
@@ -1266,18 +1686,39 @@ def metrics_dataframe(metrics: list[dict[str, Any]]) -> pd.DataFrame:
         rows.append(
             {
                 "Supplier": metric["supplier_name"],
-                "Score": metric["final_score"],
-                "Landed / unit": metric["total_landed_cost"],
-                "TCO / unit": metric["total_cost_of_ownership"],
-                "Order landed": metric["total_order_cost"],
+                "Final Score": metric["final_score"],
+                "Recommendation": metric["recommendation"],
+                "Landed / Unit": metric["total_landed_cost"],
+                "TCO / Unit": metric["total_cost_of_ownership"],
                 "Order TCO": metric["total_order_tco"],
-                "Lead time days": metric["total_lead_time"],
-                "Quality risk": metric["quality_risk_average"],
-                "Geopolitical risk": metric["geopolitical_risk_average"],
-                "Logistics risk": metric["logistics_risk_average"],
+                "Lead Time Days": metric["total_lead_time"],
+                "Cost Score": metric["dimension_scores"]["Landed Cost"],
+                "TCO Score": metric["dimension_scores"]["TCO"],
+                "Lead Time Score": metric["dimension_scores"]["Lead Time"],
+                "Capability Score": metric["dimension_scores"]["Capability"],
+                "Quality Risk": metric["quality_risk_average"],
+                "Compliance Risk": metric["compliance_risk_average"],
+                "Geopolitical Risk": metric["geopolitical_risk_average"],
+                "Logistics Risk": metric["logistics_risk_average"],
+                "Financial Stability": metric["dimension_scores"]["Financial Stability"],
+                "Contract Terms": metric["dimension_scores"]["Contract Terms"],
+                "Data Confidence": f"{metric['confidence_level']} ({metric['data_confidence_score']}/5)",
+                "Manual Review Flags": "; ".join(metric["manual_review_flags"]) or "None",
             }
         )
     return pd.DataFrame(rows)
+
+
+def format_scorecard_dataframe(score_df: pd.DataFrame) -> pd.DataFrame:
+    if score_df.empty:
+        return score_df
+    display_df = score_df.copy()
+    for col in ["Landed / Unit", "TCO / Unit", "Order TCO"]:
+        display_df[col] = display_df[col].map(format_currency)
+    display_df["Lead Time Days"] = display_df["Lead Time Days"].map(lambda value: f"{value:.0f}")
+    for col in ["Quality Risk", "Compliance Risk", "Geopolitical Risk", "Logistics Risk"]:
+        display_df[col] = display_df[col].map(lambda value: f"{value:.1f}/5")
+    return display_df
 
 
 def comparison_csv(suppliers: list[dict[str, Any]], metrics: list[dict[str, Any]]) -> str:
@@ -1293,10 +1734,23 @@ def comparison_csv(suppliers: list[dict[str, Any]], metrics: list[dict[str, Any]
             "Country": supplier["country"],
             "Region": supplier["region"],
             "Confidence Level": supplier["confidence_level"],
+            "Data Confidence Score": metric.get("data_confidence_score", ""),
+            "Recommendation": metric.get("recommendation", ""),
             "Total Landed Cost": metric.get("total_landed_cost", ""),
             "Total Cost of Ownership": metric.get("total_cost_of_ownership", ""),
             "Total Lead Time": metric.get("total_lead_time", ""),
             "Final Score": metric.get("final_score", ""),
+            "Cost Score": metric.get("dimension_scores", {}).get("Landed Cost", ""),
+            "TCO Score": metric.get("dimension_scores", {}).get("TCO", ""),
+            "Lead Time Score": metric.get("dimension_scores", {}).get("Lead Time", ""),
+            "Capability Score": metric.get("dimension_scores", {}).get("Capability", ""),
+            "Quality Risk": metric.get("quality_risk_average", ""),
+            "Compliance Risk": metric.get("compliance_risk_average", ""),
+            "Geopolitical Risk": metric.get("geopolitical_risk_average", ""),
+            "Logistics Risk": metric.get("logistics_risk_average", ""),
+            "Financial Stability": metric.get("dimension_scores", {}).get("Financial Stability", ""),
+            "Contract Terms": metric.get("dimension_scores", {}).get("Contract Terms", ""),
+            "Manual Review Flags": "; ".join(metric.get("manual_review_flags", [])),
         }
         for key, label, _kind in fields:
             row[label] = supplier["values"].get(key, "")
@@ -1633,7 +2087,7 @@ def render_supplier_discovery(requirement: dict[str, Any]) -> None:
                 "certifications": "Unavailable Online",
                 "annual_capacity": max(50000, int(numeric(requirement.get("forecasted_demand")))),
                 "customer_notes": "AI suggested placeholder generated from product category. Treat as sample data only.",
-                "confidence_level": "AI Suggested",
+                "confidence_level": "AI Estimate",
             }
         )
         template["values"]["unit_cost"] = float(numeric(requirement.get("target_cost")) or 8.5)
@@ -1687,7 +2141,7 @@ def render_supplier_discovery(requirement: dict[str, Any]) -> None:
         product_match = st.text_input("Product match")
         certifications = st.text_input("Certifications")
         annual_capacity = st.number_input("Estimated annual capacity", min_value=0, step=1000)
-        confidence = st.selectbox("Confidence level", CONFIDENCE_LEVELS, index=3)
+        confidence = st.selectbox("Confidence level", CONFIDENCE_LEVELS, index=4)
         customer_notes = st.text_area("Current customer notes")
         submitted = st.form_submit_button("Add supplier")
         if submitted and name.strip():
@@ -1743,7 +2197,7 @@ def render_framework_table() -> None:
         if idx >= len(edited):
             continue
         supplier["name"] = str(edited.at[idx, "Supplier"])
-        supplier["confidence_level"] = str(edited.at[idx, "Confidence Level"])
+        supplier["confidence_level"] = normalize_confidence_level(edited.at[idx, "Confidence Level"])
         for key, label, kind in section["fields"]:
             value = edited.at[idx, label]
             supplier["values"][key] = str(value) if kind == "text" else numeric(value)
@@ -1755,11 +2209,12 @@ def render_scoring(metrics: list[dict[str, Any]]) -> None:
         "Tune how the sourcing framework scores suppliers. Risk inputs are inverted so lower risk improves score."
     )
     category_tab, field_tab, scorecard_tab = st.tabs(
-        ["Category weights", "Field weights", "Scorecard"]
+        ["Scoring Weights", "Field weights", "Scorecard"]
     )
 
     with category_tab:
-        st.write("Category weights control how each major scoring dimension contributes to the final score.")
+        st.markdown("### Scoring Weights")
+        st.write("Category weights control how each major scoring dimension contributes to the final supplier score.")
         col1, col2 = st.columns([0.35, 0.65])
         with col1:
             if st.button("Reset category weights"):
@@ -1767,7 +2222,7 @@ def render_scoring(metrics: list[dict[str, Any]]) -> None:
                 sync_category_weight_widgets()
                 st.rerun()
         with col2:
-            st.info("Weights do not have to total 100, but a 100-point model is easiest to explain.")
+            st.info("The default model totals 100% and follows the scoring framework in the guide.")
 
         for key, label in WEIGHT_LABELS.items():
             st.session_state.weights[key] = st.number_input(
@@ -1781,7 +2236,9 @@ def render_scoring(metrics: list[dict[str, Any]]) -> None:
         weight_total = sum(st.session_state.weights.values())
         st.metric("Total weight", f"{weight_total}%")
         if weight_total != 100:
-            st.warning("Weights do not need to total 100, but 100 is easiest to audit.")
+            st.warning("Weights should equal 100% for the clearest audit trail. The app normalizes the score if they do not.")
+        else:
+            st.success("Weights total 100%.")
 
     with field_tab:
         st.write(
@@ -1861,14 +2318,127 @@ def render_scoring(metrics: list[dict[str, Any]]) -> None:
     with scorecard_tab:
         score_df = metrics_dataframe(metrics)
         if not score_df.empty:
-            display_df = score_df.copy()
-            money_cols = ["Landed / unit", "TCO / unit", "Order landed", "Order TCO"]
-            for col in money_cols:
-                display_df[col] = display_df[col].map(format_currency)
-            display_df["Lead time days"] = display_df["Lead time days"].map(lambda value: f"{value:.0f}")
-            st.dataframe(display_df, width="stretch", hide_index=True)
+            st.dataframe(format_scorecard_dataframe(score_df), width="stretch", hide_index=True)
         else:
             st.info("Add suppliers to calculate scores.")
+
+
+def format_field_value(value: Any, kind: str) -> str:
+    if kind == "currency":
+        return format_currency(numeric(value))
+    if kind == "days":
+        return format_days(numeric(value))
+    if kind in {"score", "risk"}:
+        return f"{bounded_score(value):.1f}/5"
+    if kind == "number":
+        return f"{numeric(value):,.0f}"
+    return clean_cell(value) or "Blank"
+
+
+def section_breakdown_dataframe(
+    supplier: dict[str, Any], section_key: str, field_weights: dict[str, float]
+) -> pd.DataFrame:
+    rows = []
+    for key, label, kind in FRAMEWORK_SECTIONS[section_key]["fields"]:
+        value = supplier["values"].get(key, "")
+        adjusted_score = ""
+        if kind == "risk":
+            adjusted_score = f"{convert_risk_to_score(bounded_score(value)):.1f}/5"
+        elif kind == "score":
+            adjusted_score = f"{bounded_score(value):.1f}/5"
+        rows.append(
+            {
+                "Factor": label,
+                "Input": format_field_value(value, kind),
+                "Score Used": adjusted_score,
+                "Field Weight": field_weight(field_weights, key),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def render_score_explanations() -> None:
+    st.markdown("### How the Supplier Score is Calculated")
+    for explanation in SCORE_EXPLANATIONS:
+        with st.expander(explanation["title"]):
+            st.markdown(f"**What it measures:** {explanation['measures']}")
+            st.markdown(f"**Subfactors included:** {explanation['subfactors']}")
+            st.markdown(f"**Direction:** {explanation['direction']}")
+            st.markdown(f"**Calculation:** {explanation['calculation']}")
+            st.markdown(f"**Why it matters:** {explanation['why']}")
+
+
+def render_supplier_detail_sections(
+    metrics: list[dict[str, Any]], suppliers: list[dict[str, Any]]
+) -> None:
+    st.markdown("### Supplier Detail Breakdowns")
+    metric_lookup = {metric["supplier_id"]: metric for metric in metrics}
+    for supplier in suppliers:
+        metric = metric_lookup.get(supplier["id"])
+        if not metric:
+            continue
+        title = f"{supplier['name']} - Score Breakdown"
+        with st.expander(title):
+            st.markdown(
+                f"**Recommendation:** {metric['recommendation']}  \n"
+                f"**Final score:** {metric['final_score']}/100  \n"
+                f"**Data confidence:** {metric['confidence_level']} ({metric['data_confidence_score']}/5)"
+            )
+            if metric["manual_review_flags"]:
+                st.warning("; ".join(metric["manual_review_flags"]))
+            else:
+                st.success("No manual review flags generated.")
+
+            cost_cols = st.columns(4)
+            cost_cols[0].metric("Landed / unit", format_currency(metric["total_landed_cost"]))
+            cost_cols[1].metric("TCO / unit", format_currency(metric["total_cost_of_ownership"]))
+            cost_cols[2].metric("Lead time", format_days(metric["total_lead_time"]))
+            cost_cols[3].metric("Final score", f"{metric['final_score']}/100")
+
+            st.markdown("#### Cost breakdown")
+            st.dataframe(
+                section_breakdown_dataframe(supplier, "cost", st.session_state.field_weights),
+                width="stretch",
+                hide_index=True,
+            )
+
+            st.markdown("#### Lead time breakdown")
+            st.dataframe(
+                section_breakdown_dataframe(supplier, "lead_time", st.session_state.field_weights),
+                width="stretch",
+                hide_index=True,
+            )
+
+            score_sections = [
+                ("capability", "Capability subfactor scores"),
+                ("quality_risk", "Quality risk subfactor scores"),
+                ("compliance", "Compliance subfactor scores"),
+                ("geopolitical_risk", "Geopolitical risk subfactor scores"),
+                ("logistics", "Logistics risk subfactor scores"),
+                ("financial_stability", "Financial stability subfactor scores"),
+                ("contract", "Contract terms subfactor scores"),
+            ]
+            for section_key, label in score_sections:
+                st.markdown(f"#### {label}")
+                st.dataframe(
+                    section_breakdown_dataframe(supplier, section_key, st.session_state.field_weights),
+                    width="stretch",
+                    hide_index=True,
+                )
+
+            st.markdown("#### AI sourcing notes")
+            st.write(supplier.get("customer_notes") or "No sourcing notes entered.")
+
+
+def render_supplier_scorecard(metrics: list[dict[str, Any]], suppliers: list[dict[str, Any]]) -> None:
+    st.markdown("### Supplier scorecard")
+    score_df = metrics_dataframe(metrics)
+    if score_df.empty:
+        st.info("Add suppliers to calculate the scorecard.")
+        return
+    st.dataframe(format_scorecard_dataframe(score_df), width="stretch", hide_index=True)
+    render_supplier_detail_sections(metrics, suppliers)
+    render_score_explanations()
 
 
 def render_weekly_news() -> None:
@@ -1927,38 +2497,69 @@ def render_dashboard(metrics: list[dict[str, Any]]) -> None:
         return
 
     score_df = metrics_dataframe(metrics)
-    cost_df = score_df[["Supplier", "Landed / unit", "TCO / unit"]].melt(
-        id_vars="Supplier", var_name="Cost type", value_name="USD per unit"
-    )
-    lead_df = score_df[["Supplier", "Lead time days"]]
 
     col1, col2 = st.columns(2)
-    fig_cost = px.bar(
-        cost_df,
+    fig_score = px.bar(
+        score_df.sort_values("Final Score", ascending=False),
         x="Supplier",
-        y="USD per unit",
-        color="Cost type",
-        barmode="group",
-        title="Total landed cost vs total cost of ownership",
-        color_discrete_sequence=["#0f766e", "#2563eb"],
+        y="Final Score",
+        color="Final Score",
+        title="Final supplier score",
+        color_continuous_scale=["#dc2626", "#f59e0b", "#0f766e"],
+        text="Final Score",
     )
-    fig_cost.update_layout(height=360, margin=dict(l=20, r=20, t=55, b=20))
-    col1.plotly_chart(fig_cost, width="stretch")
+    fig_score.update_layout(height=360, margin=dict(l=20, r=20, t=55, b=20), showlegend=False)
+    fig_score.update_traces(textposition="outside")
+    col1.plotly_chart(fig_score, width="stretch")
 
+    fig_landed = px.bar(
+        score_df.sort_values("Landed / Unit"),
+        x="Supplier",
+        y="Landed / Unit",
+        title="Total landed cost per unit",
+        color="Landed / Unit",
+        color_continuous_scale=["#0f766e", "#f59e0b", "#dc2626"],
+    )
+    fig_landed.update_layout(height=360, margin=dict(l=20, r=20, t=55, b=20), showlegend=False)
+    col2.plotly_chart(fig_landed, width="stretch")
+
+    col3, col4 = st.columns(2)
+    fig_tco = px.bar(
+        score_df.sort_values("TCO / Unit"),
+        x="Supplier",
+        y="TCO / Unit",
+        title="Total cost of ownership per unit",
+        color="TCO / Unit",
+        color_continuous_scale=["#0f766e", "#f59e0b", "#dc2626"],
+    )
+    fig_tco.update_layout(height=360, margin=dict(l=20, r=20, t=55, b=20), showlegend=False)
+    col3.plotly_chart(fig_tco, width="stretch")
+
+    lead_df = score_df[["Supplier", "Lead Time Days"]]
     fig_lead = px.bar(
         lead_df,
         x="Supplier",
-        y="Lead time days",
+        y="Lead Time Days",
         title="Lead time comparison",
-        color="Lead time days",
+        color="Lead Time Days",
         color_continuous_scale=["#0f766e", "#f59e0b", "#dc2626"],
     )
     fig_lead.update_layout(height=360, margin=dict(l=20, r=20, t=55, b=20), showlegend=False)
-    col2.plotly_chart(fig_lead, width="stretch")
+    col4.plotly_chart(fig_lead, width="stretch")
 
-    heatmap = score_df.set_index("Supplier")[
-        ["Quality risk", "Geopolitical risk", "Logistics risk"]
-    ]
+    heatmap = pd.DataFrame(
+        [
+            {
+                "Supplier": metric["supplier_name"],
+                "Quality Risk": metric["quality_risk_average"],
+                "Compliance Risk": metric["compliance_risk_average"],
+                "Geopolitical Risk": metric["geopolitical_risk_average"],
+                "Logistics Risk": metric["logistics_risk_average"],
+                "Financial Stability Risk": 6 - metric["financial_stability_score"],
+            }
+            for metric in metrics
+        ]
+    ).set_index("Supplier")
     fig_heat = px.imshow(
         heatmap,
         text_auto=".1f",
@@ -1989,17 +2590,11 @@ def render_dashboard(metrics: list[dict[str, Any]]) -> None:
         margin=dict(l=20, r=20, t=55, b=20),
     )
 
-    col3, col4 = st.columns(2)
-    col3.plotly_chart(fig_heat, width="stretch")
-    col4.plotly_chart(radar_fig, width="stretch")
+    col5, col6 = st.columns(2)
+    col5.plotly_chart(fig_heat, width="stretch")
+    col6.plotly_chart(radar_fig, width="stretch")
 
-    st.markdown("### Supplier scorecard")
-    display_df = score_df.copy()
-    display_df["Landed / unit"] = display_df["Landed / unit"].map(format_currency)
-    display_df["TCO / unit"] = display_df["TCO / unit"].map(format_currency)
-    display_df["Order landed"] = display_df["Order landed"].map(format_currency)
-    display_df["Order TCO"] = display_df["Order TCO"].map(format_currency)
-    st.dataframe(display_df, width="stretch", hide_index=True)
+    render_supplier_scorecard(metrics, st.session_state.suppliers)
 
 
 def render_insights(
@@ -2051,7 +2646,13 @@ def main() -> None:
     suppliers = st.session_state.suppliers
     weights = st.session_state.weights
     field_weights = st.session_state.field_weights
-    metrics = calculate_metrics(suppliers, weights, numeric(requirement.get("quantity")), field_weights)
+    metrics = calculate_metrics(
+        suppliers,
+        weights,
+        numeric(requirement.get("quantity")),
+        field_weights,
+        requirement,
+    )
     review = analyze_requirement(requirement)
     render_summary(metrics, review)
     st.divider()
