@@ -1319,10 +1319,11 @@ def parse_news_date(raw_date: str) -> str:
 @st.cache_data(ttl=60 * 60 * 24 * 7, show_spinner=False)
 def fetch_weekly_news(query: str, limit: int) -> dict[str, Any]:
     encoded_query = quote_plus(query)
-    url = f"https://news.google.com/rss/search?q={encoded_query}&hl=en-US&gl=US&ceid=US:en"
+    rss_url = f"https://news.google.com/rss/search?q={encoded_query}&hl=en-US&gl=US&ceid=US:en"
+    search_url = f"https://news.google.com/search?q={encoded_query}&hl=en-US&gl=US&ceid=US:en"
     fetched_at = datetime.now(timezone.utc).strftime("%b %d, %Y %H:%M UTC")
     try:
-        request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        request = Request(rss_url, headers={"User-Agent": "Mozilla/5.0"})
         with urlopen(request, timeout=10) as response:
             raw_xml = response.read()
         root = ET.fromstring(raw_xml)
@@ -1337,9 +1338,21 @@ def fetch_weekly_news(query: str, limit: int) -> dict[str, Any]:
                     "published": parse_news_date(item.findtext("pubDate") or ""),
                 }
             )
-        return {"articles": articles, "error": "", "url": url, "fetched_at": fetched_at}
+        return {
+            "articles": articles,
+            "error": "",
+            "rss_url": rss_url,
+            "search_url": search_url,
+            "fetched_at": fetched_at,
+        }
     except Exception as error:  # noqa: BLE001 - show a friendly app-level fallback.
-        return {"articles": [], "error": str(error), "url": url, "fetched_at": fetched_at}
+        return {
+            "articles": [],
+            "error": str(error),
+            "rss_url": rss_url,
+            "search_url": search_url,
+            "fetched_at": fetched_at,
+        }
 
 
 def render_header() -> None:
@@ -1852,7 +1865,7 @@ def render_weekly_news() -> None:
         st.rerun()
 
     news = fetch_weekly_news(query.strip() or NEWS_TOPICS["Global sourcing"], int(article_limit))
-    source_col.markdown(f"[Open full news feed]({news['url']})")
+    source_col.markdown(f"[Open Google News search]({news['search_url']})")
     st.caption(f"Last checked: {news['fetched_at']}")
 
     if news["error"]:
