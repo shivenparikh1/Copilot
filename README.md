@@ -7,6 +7,11 @@ The repository includes two frontends:
 - React/Vite portfolio app in `src/`
 - Streamlit Cloud-ready app in `streamlit_app.py`
 
+There are two Streamlit-related Python files:
+
+- `streamlit_app.py` is the active deployed app file. It contains `st.set_page_config`, the main app layout, and the Supplier Scorecard.
+- `app.py` is a small launcher that imports `main` from `streamlit_app.py`; it exists for tools that expect an `app.py` filename.
+
 ## Streamlit Deployment
 
 Use this as the Streamlit main file path:
@@ -31,7 +36,7 @@ The Streamlit app starts as a blank guided workflow. It does not preload product
 
 New sourcing workflow sections include:
 
-- **Framework Weights** for changing both top-level scoring weights and individual field weights.
+- **Framework Weights** for changing top-level scoring weights, individual field weights, and the transparent Supplier Scorecard model.
 - **Weekly News** for current sourcing, trade, logistics, and supplier-risk headlines from a public RSS feed cached for one week.
 - **Sourcing Excel Upload** for extracting matching product requirements and supplier rows from `.xlsx` workbooks.
 
@@ -59,4 +64,4 @@ pnpm build
 - Stores edits in local browser/session state depending on frontend.
 - Does not connect to a backend or live AI API.
 - AI review, supplier suggestions, insights, and memo generation use rule-based placeholder logic.
-- Supplier data confidence labels include Verified, Estimated, AI Suggested, Needs Manual Review, and Unavailable Online.
+- Supplier data confidence labels include Verified, Supplier Quote, Public Estimate, AI Estimate, Manual Review Needed, and Unavailable Online.

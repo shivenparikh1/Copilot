@@ -50,6 +50,25 @@ CONFIDENCE_ALIASES = {
 
 CRITICALITY_LEVELS = ["Low", "Medium", "High", "Critical"]
 
+SCORECARD_MAIN_COLUMNS = [
+    "Supplier",
+    "Final Score",
+    "Recommendation",
+    "Landed / Unit",
+    "TCO / Unit",
+    "Order TCO",
+    "Lead Time Days",
+    "Capability Score",
+    "Quality Risk",
+    "Compliance Risk",
+    "Geopolitical Risk",
+    "Logistics Risk",
+    "Financial Stability",
+    "Contract Terms",
+    "Data Confidence",
+    "Manual Review Flags",
+]
+
 DEFAULT_WEIGHTS = {
     "landed_cost": 15,
     "tco": 10,
@@ -1258,7 +1277,11 @@ def calculate_total_lead_time(supplier: dict[str, Any]) -> float:
     return sum(supplier_numeric(supplier, key) for key in LEAD_TIME_KEYS)
 
 
-def calculate_average_score(subfactor_list: list[tuple[float, float]]) -> float:
+def calculate_average_score(scores: list[float | tuple[float, float]]) -> float:
+    subfactor_list = [
+        item if isinstance(item, tuple) else (item, 1.0)
+        for item in scores
+    ]
     total_weight = sum(weight for _value, weight in subfactor_list)
     if total_weight <= 0:
         return 3.0
@@ -1308,7 +1331,8 @@ def data_confidence_score(supplier: dict[str, Any]) -> int:
     return CONFIDENCE_SCORE_MAP.get(normalize_confidence_level(supplier.get("confidence_level", "")), 1)
 
 
-def calculate_final_supplier_score(category_scores: dict[str, float], weights: dict[str, float]) -> int:
+def calculate_final_supplier_score(supplier: dict[str, Any], weights: dict[str, float]) -> int:
+    category_scores = supplier.get("category_scores", supplier)
     total_weight = sum(max(0.0, numeric(value)) for value in weights.values())
     if total_weight <= 0:
         return 0
@@ -1446,7 +1470,7 @@ def calculate_metrics(
             "Financial Stability": score_to_100(metric["financial_stability_score"]),
             "Contract Terms": score_to_100(metric["contract_score"]),
         }
-        metric["final_score"] = calculate_final_supplier_score(metric["category_scores"], weights)
+        metric["final_score"] = calculate_final_supplier_score(metric, weights)
     recommendation_labels = assign_recommendation_labels(base_metrics)
     for metric in base_metrics:
         metric["recommendation"] = recommendation_labels.get(metric["supplier_id"], "Review")
@@ -1472,6 +1496,7 @@ def assign_recommendation_labels(metrics: list[dict[str, Any]]) -> dict[str, str
             for metric in by_score[1:]
             if max(
                 metric["quality_risk_average"],
+                metric["compliance_risk_average"],
                 metric["geopolitical_risk_average"],
                 metric["logistics_risk_average"],
             )
@@ -1486,6 +1511,7 @@ def assign_recommendation_labels(metrics: list[dict[str, Any]]) -> dict[str, str
     for metric in metrics:
         if max(
             metric["quality_risk_average"],
+            metric["compliance_risk_average"],
             metric["geopolitical_risk_average"],
             metric["logistics_risk_average"],
         ) >= 4:
@@ -1712,7 +1738,7 @@ def metrics_dataframe(metrics: list[dict[str, Any]]) -> pd.DataFrame:
 def format_scorecard_dataframe(score_df: pd.DataFrame) -> pd.DataFrame:
     if score_df.empty:
         return score_df
-    display_df = score_df.copy()
+    display_df = score_df[[col for col in SCORECARD_MAIN_COLUMNS if col in score_df.columns]].copy()
     for col in ["Landed / Unit", "TCO / Unit", "Order TCO"]:
         display_df[col] = display_df[col].map(format_currency)
     display_df["Lead Time Days"] = display_df["Lead Time Days"].map(lambda value: f"{value:.0f}")
