@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html import unescape
 from io import BytesIO, StringIO
@@ -72,6 +72,8 @@ NEWS_TOPICS = {
     "Supplier risk": "supplier risk manufacturing supply chain disruption",
     "Nearshoring": "nearshoring reshoring manufacturing supply chain sourcing",
 }
+
+NEWS_LOOKBACK_DAYS = 30
 
 BLANK_REQUIREMENT = {
     "product_name": "",
@@ -1304,46 +1306,65 @@ def comparison_csv(suppliers: list[dict[str, Any]], metrics: list[dict[str, Any]
     return buffer.getvalue()
 
 
-def parse_news_date(raw_date: str) -> str:
+def parse_news_datetime(raw_date: str) -> datetime | None:
     if not raw_date:
-        return "Date unavailable"
+        return None
     try:
         parsed = parsedate_to_datetime(raw_date)
-        if parsed.tzinfo is not None:
-            parsed = parsed.astimezone(timezone.utc)
-        return parsed.strftime("%b %d, %Y")
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
     except (TypeError, ValueError):
+        return None
+
+
+def parse_news_date(raw_date: str) -> str:
+    parsed = parse_news_datetime(raw_date)
+    if parsed is not None:
+        return parsed.strftime("%b %d, %Y")
+    if raw_date:
         return raw_date
+    return "Date unavailable"
 
 
 @st.cache_data(ttl=60 * 60 * 24 * 7, show_spinner=False)
 def fetch_weekly_news(query: str, limit: int) -> dict[str, Any]:
-    encoded_query = quote_plus(query)
+    recent_query = f"{query} when:{NEWS_LOOKBACK_DAYS}d"
+    encoded_query = quote_plus(recent_query)
     rss_url = f"https://news.google.com/rss/search?q={encoded_query}&hl=en-US&gl=US&ceid=US:en"
     search_url = f"https://news.google.com/search?q={encoded_query}&hl=en-US&gl=US&ceid=US:en"
-    fetched_at = datetime.now(timezone.utc).strftime("%b %d, %Y %H:%M UTC")
+    fetched_at_dt = datetime.now(timezone.utc)
+    fetched_at = fetched_at_dt.strftime("%b %d, %Y %H:%M UTC")
+    cutoff = fetched_at_dt - timedelta(days=NEWS_LOOKBACK_DAYS)
     try:
         request = Request(rss_url, headers={"User-Agent": "Mozilla/5.0"})
         with urlopen(request, timeout=10) as response:
             raw_xml = response.read()
         root = ET.fromstring(raw_xml)
         articles = []
-        for item in root.findall("./channel/item")[:limit]:
+        for item in root.findall("./channel/item"):
+            pub_date_raw = item.findtext("pubDate") or ""
+            published_at = parse_news_datetime(pub_date_raw)
+            if published_at is None or published_at < cutoff:
+                continue
             source = item.findtext("source") or "Google News"
             articles.append(
                 {
                     "title": unescape(item.findtext("title") or "Untitled article"),
                     "link": item.findtext("link") or "",
                     "source": unescape(source),
-                    "published": parse_news_date(item.findtext("pubDate") or ""),
+                    "published": parse_news_date(pub_date_raw),
                 }
             )
+            if len(articles) >= limit:
+                break
         return {
             "articles": articles,
             "error": "",
             "rss_url": rss_url,
             "search_url": search_url,
             "fetched_at": fetched_at,
+            "lookback_days": NEWS_LOOKBACK_DAYS,
         }
     except Exception as error:  # noqa: BLE001 - show a friendly app-level fallback.
         return {
@@ -1352,6 +1373,7 @@ def fetch_weekly_news(query: str, limit: int) -> dict[str, Any]:
             "rss_url": rss_url,
             "search_url": search_url,
             "fetched_at": fetched_at,
+            "lookback_days": NEWS_LOOKBACK_DAYS,
         }
 
 
@@ -1851,7 +1873,7 @@ def render_scoring(metrics: list[dict[str, Any]]) -> None:
 
 def render_weekly_news() -> None:
     st.subheader("Weekly Sourcing News")
-    st.caption("Current external news, cached for one week to keep the app quick and stable.")
+    st.caption("Current external news from the past 30 days, cached for one week to keep the app quick and stable.")
 
     control_cols = st.columns([0.35, 0.45, 0.20])
     topic = control_cols[0].selectbox("News focus", list(NEWS_TOPICS.keys()) + ["Custom"])
@@ -1865,8 +1887,8 @@ def render_weekly_news() -> None:
         st.rerun()
 
     news = fetch_weekly_news(query.strip() or NEWS_TOPICS["Global sourcing"], int(article_limit))
-    source_col.markdown(f"[Open Google News search]({news['search_url']})")
-    st.caption(f"Last checked: {news['fetched_at']}")
+    source_col.markdown(f"[Open Google News search from past 30 days]({news['search_url']})")
+    st.caption(f"Showing articles from the past {news['lookback_days']} days. Last checked: {news['fetched_at']}")
 
     if news["error"]:
         st.warning("The news feed could not be reached right now. Try refreshing later.")
@@ -1874,7 +1896,7 @@ def render_weekly_news() -> None:
         return
 
     if not news["articles"]:
-        st.info("No matching articles were returned for this query. Try broader sourcing or supply chain terms.")
+        st.info("No matching articles from the past 30 days were returned. Try broader sourcing or supply chain terms.")
         return
 
     for article in news["articles"]:
