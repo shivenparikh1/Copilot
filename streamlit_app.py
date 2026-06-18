@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+from html import unescape
 from io import StringIO
 from typing import Any
+from urllib.parse import quote_plus
+from urllib.request import Request, urlopen
+import xml.etree.ElementTree as ET
 
 import pandas as pd
 import plotly.express as px
@@ -47,6 +53,23 @@ WEIGHT_LABELS = {
     "geopolitical_risk": "Geopolitical Risk",
     "logistics": "Logistics Complexity",
     "contract": "Contract Terms",
+}
+
+FIELD_KIND_LABELS = {
+    "currency": "Cost input",
+    "days": "Lead-time input",
+    "number": "Commercial input",
+    "risk": "Risk input",
+    "score": "Capability input",
+    "text": "Reference input",
+}
+
+NEWS_TOPICS = {
+    "Global sourcing": "global sourcing supply chain procurement tariffs logistics",
+    "Tariffs and trade": "tariffs trade policy supply chain sourcing",
+    "Logistics": "ocean freight port congestion logistics supply chain",
+    "Supplier risk": "supplier risk manufacturing supply chain disruption",
+    "Nearshoring": "nearshoring reshoring manufacturing supply chain sourcing",
 }
 
 BLANK_REQUIREMENT = {
@@ -253,6 +276,38 @@ def default_values() -> dict[str, Any]:
             else:
                 values[key] = 0.0
     return values
+
+
+def all_framework_fields() -> list[dict[str, str]]:
+    fields = []
+    for section_key, section in FRAMEWORK_SECTIONS.items():
+        for key, label, kind in section["fields"]:
+            fields.append(
+                {
+                    "section_key": section_key,
+                    "section": section["label"],
+                    "key": key,
+                    "label": label,
+                    "kind": kind,
+                }
+            )
+    return fields
+
+
+def default_field_weights() -> dict[str, float]:
+    return {field["key"]: 1.0 for field in all_framework_fields()}
+
+
+def sync_category_weight_widgets() -> None:
+    for key, value in st.session_state.weights.items():
+        st.session_state[f"weight_{key}"] = int(value)
+
+
+def sync_weight_inputs() -> None:
+    for key in WEIGHT_LABELS:
+        widget_key = f"weight_{key}"
+        if widget_key in st.session_state:
+            st.session_state.weights[key] = numeric(st.session_state[widget_key])
 
 
 COMMON_VALUES = {
@@ -519,6 +574,13 @@ def initialize_state() -> None:
         st.session_state.suppliers = []
     if "weights" not in st.session_state:
         st.session_state.weights = deepcopy(DEFAULT_WEIGHTS)
+    if "field_weights" not in st.session_state:
+        st.session_state.field_weights = default_field_weights()
+    else:
+        for key, value in default_field_weights().items():
+            st.session_state.field_weights.setdefault(key, value)
+    if "field_weight_editor_version" not in st.session_state:
+        st.session_state.field_weight_editor_version = 0
     if "workspace_page" not in st.session_state:
         st.session_state.workspace_page = "Guide"
 
@@ -527,6 +589,9 @@ def reset_workspace() -> None:
     st.session_state.requirement = deepcopy(BLANK_REQUIREMENT)
     st.session_state.suppliers = []
     st.session_state.weights = deepcopy(DEFAULT_WEIGHTS)
+    sync_category_weight_widgets()
+    st.session_state.field_weights = default_field_weights()
+    st.session_state.field_weight_editor_version += 1
     st.session_state.workspace_page = "Guide"
 
 
@@ -534,6 +599,9 @@ def load_demo_data() -> None:
     st.session_state.requirement = deepcopy(SAMPLE_REQUIREMENT)
     st.session_state.suppliers = deepcopy(SAMPLE_SUPPLIERS)
     st.session_state.weights = deepcopy(DEFAULT_WEIGHTS)
+    sync_category_weight_widgets()
+    st.session_state.field_weights = default_field_weights()
+    st.session_state.field_weight_editor_version += 1
     st.session_state.workspace_page = "Dashboard"
 
 
@@ -578,6 +646,14 @@ def supplier_numeric(supplier: dict[str, Any], key: str) -> float:
     return numeric(supplier["values"].get(key))
 
 
+def field_weight(field_weights: dict[str, float], key: str) -> float:
+    return max(0.0, numeric(field_weights.get(key, 1.0)))
+
+
+def weighted_sum(supplier: dict[str, Any], keys: list[str], field_weights: dict[str, float]) -> float:
+    return sum(supplier_numeric(supplier, key) * field_weight(field_weights, key) for key in keys)
+
+
 def format_currency(value: float) -> str:
     if abs(value) >= 1000:
         return f"${value:,.0f}"
@@ -593,24 +669,32 @@ def short_name(name: str) -> str:
     return " ".join(parts[:2]) or name
 
 
-def average_section(supplier: dict[str, Any], section_key: str) -> float:
+def average_section(supplier: dict[str, Any], section_key: str, field_weights: dict[str, float]) -> float:
     fields = FRAMEWORK_SECTIONS[section_key]["fields"]
     keys = [key for key, _label, kind in fields if kind in {"score", "risk"}]
     if not keys:
         return 0.0
-    return sum(supplier_numeric(supplier, key) for key in keys) / len(keys)
+    total_weight = sum(field_weight(field_weights, key) for key in keys)
+    if total_weight <= 0:
+        return 0.0
+    return sum(supplier_numeric(supplier, key) * field_weight(field_weights, key) for key in keys) / total_weight
 
 
-def average_contract_score(supplier: dict[str, Any]) -> float:
+def average_contract_score(supplier: dict[str, Any], field_weights: dict[str, float]) -> float:
     fields = FRAMEWORK_SECTIONS["contract"]["fields"]
     scored = [(key, kind) for key, _label, kind in fields if kind in {"score", "risk"}]
     if not scored:
         return 0.0
     total = 0.0
+    total_weight = 0.0
     for key, kind in scored:
         value = supplier_numeric(supplier, key)
-        total += 6 - value if kind == "risk" else value
-    return total / len(scored)
+        weight = field_weight(field_weights, key)
+        total += (6 - value if kind == "risk" else value) * weight
+        total_weight += weight
+    if total_weight <= 0:
+        return 0.0
+    return total / total_weight
 
 
 def score_to_100(score: float) -> float:
@@ -630,13 +714,19 @@ def lower_is_better(value: float, values: list[float]) -> float:
 
 
 def calculate_metrics(
-    suppliers: list[dict[str, Any]], weights: dict[str, float], quantity: float
+    suppliers: list[dict[str, Any]],
+    weights: dict[str, float],
+    quantity: float,
+    field_weights: dict[str, float],
 ) -> list[dict[str, Any]]:
     base_metrics = []
     for supplier in suppliers:
         landed = sum(supplier_numeric(supplier, key) for key in LANDED_COST_KEYS)
         tco = landed + sum(supplier_numeric(supplier, key) for key in OWNERSHIP_COST_KEYS)
         lead_time = sum(supplier_numeric(supplier, key) for key in LEAD_TIME_KEYS)
+        weighted_landed = weighted_sum(supplier, LANDED_COST_KEYS, field_weights)
+        weighted_tco = weighted_landed + weighted_sum(supplier, OWNERSHIP_COST_KEYS, field_weights)
+        weighted_lead_time = weighted_sum(supplier, LEAD_TIME_KEYS, field_weights)
         base_metrics.append(
             {
                 "supplier_id": supplier["id"],
@@ -646,17 +736,20 @@ def calculate_metrics(
                 "total_order_cost": landed * quantity,
                 "total_order_tco": tco * quantity,
                 "total_lead_time": lead_time,
-                "capability_average": average_section(supplier, "capability"),
-                "quality_risk_average": average_section(supplier, "quality_risk"),
-                "geopolitical_risk_average": average_section(supplier, "geopolitical_risk"),
-                "logistics_risk_average": average_section(supplier, "logistics"),
-                "contract_score_average": average_contract_score(supplier),
+                "weighted_landed_cost_basis": weighted_landed,
+                "weighted_tco_basis": weighted_tco,
+                "weighted_lead_time_basis": weighted_lead_time,
+                "capability_average": average_section(supplier, "capability", field_weights),
+                "quality_risk_average": average_section(supplier, "quality_risk", field_weights),
+                "geopolitical_risk_average": average_section(supplier, "geopolitical_risk", field_weights),
+                "logistics_risk_average": average_section(supplier, "logistics", field_weights),
+                "contract_score_average": average_contract_score(supplier, field_weights),
             }
         )
 
-    landed_values = [metric["total_landed_cost"] for metric in base_metrics]
-    tco_values = [metric["total_cost_of_ownership"] for metric in base_metrics]
-    lead_values = [metric["total_lead_time"] for metric in base_metrics]
+    landed_values = [metric["weighted_landed_cost_basis"] for metric in base_metrics]
+    tco_values = [metric["weighted_tco_basis"] for metric in base_metrics]
+    lead_values = [metric["weighted_lead_time_basis"] for metric in base_metrics]
     total_weight = max(sum(float(value) for value in weights.values()), 1)
 
     for metric in base_metrics:
@@ -906,6 +999,44 @@ def comparison_csv(suppliers: list[dict[str, Any]], metrics: list[dict[str, Any]
     return buffer.getvalue()
 
 
+def parse_news_date(raw_date: str) -> str:
+    if not raw_date:
+        return "Date unavailable"
+    try:
+        parsed = parsedate_to_datetime(raw_date)
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(timezone.utc)
+        return parsed.strftime("%b %d, %Y")
+    except (TypeError, ValueError):
+        return raw_date
+
+
+@st.cache_data(ttl=60 * 60 * 24 * 7, show_spinner=False)
+def fetch_weekly_news(query: str, limit: int) -> dict[str, Any]:
+    encoded_query = quote_plus(query)
+    url = f"https://news.google.com/rss/search?q={encoded_query}&hl=en-US&gl=US&ceid=US:en"
+    fetched_at = datetime.now(timezone.utc).strftime("%b %d, %Y %H:%M UTC")
+    try:
+        request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(request, timeout=10) as response:
+            raw_xml = response.read()
+        root = ET.fromstring(raw_xml)
+        articles = []
+        for item in root.findall("./channel/item")[:limit]:
+            source = item.findtext("source") or "Google News"
+            articles.append(
+                {
+                    "title": unescape(item.findtext("title") or "Untitled article"),
+                    "link": item.findtext("link") or "",
+                    "source": unescape(source),
+                    "published": parse_news_date(item.findtext("pubDate") or ""),
+                }
+            )
+        return {"articles": articles, "error": "", "url": url, "fetched_at": fetched_at}
+    except Exception as error:  # noqa: BLE001 - show a friendly app-level fallback.
+        return {"articles": [], "error": str(error), "url": url, "fetched_at": fetched_at}
+
+
 def render_header() -> None:
     st.title("Global Sourcing Copilot")
     st.caption(
@@ -929,7 +1060,8 @@ def render_sidebar() -> str:
         "Product Intake",
         "Supplier Discovery",
         "Framework Table",
-        "Scoring Model",
+        "Framework Weights",
+        "Weekly News",
         "Dashboard",
         "AI Insights",
         "Recommendation & Export",
@@ -942,7 +1074,7 @@ def render_sidebar() -> str:
         key="workspace_page",
     )
     st.sidebar.info(
-        "Start with the guide, enter your own product and suppliers, then use the dashboard once enough data exists."
+        "Start with the guide, enter your own product and suppliers, adjust the framework, then review the dashboard."
     )
     return page
 
@@ -1002,9 +1134,10 @@ def render_guide(requirement: dict[str, Any], metrics: list[dict[str, Any]]) -> 
         1. Open **Product Intake** and enter the product, volume, quality, compliance, lead-time, and delivery requirements.
         2. Open **Supplier Discovery** and add suppliers manually, or use **AI Suggested Supplier** for clearly labeled placeholder options.
         3. Open **Framework Table** and fill in cost, lead-time, capability, risk, logistics, and contract assumptions.
-        4. Open **Scoring Model** to adjust the default sourcing weights.
-        5. Open **Dashboard** to compare landed cost, total cost of ownership, lead time, risk, and supplier score.
-        6. Open **Recommendation & Export** to download the supplier table and sourcing memo.
+        4. Open **Framework Weights** to tune the category weights and individual field weights.
+        5. Open **Weekly News** to scan current sourcing, trade, logistics, and supplier-risk updates.
+        6. Open **Dashboard** to compare landed cost, total cost of ownership, lead time, risk, and supplier score.
+        7. Open **Recommendation & Export** to download the supplier table and sourcing memo.
         """
     )
 
@@ -1212,10 +1345,25 @@ def render_framework_table() -> None:
 
 
 def render_scoring(metrics: list[dict[str, Any]]) -> None:
-    st.subheader("Supplier Scoring Model")
-    st.caption("Adjust the default sourcing weights. Risk scores are inverted so lower risk improves score.")
-    col1, col2 = st.columns([0.35, 0.65])
-    with col1:
+    st.subheader("Framework Weights")
+    st.caption(
+        "Tune how the sourcing framework scores suppliers. Risk inputs are inverted so lower risk improves score."
+    )
+    category_tab, field_tab, scorecard_tab = st.tabs(
+        ["Category weights", "Field weights", "Scorecard"]
+    )
+
+    with category_tab:
+        st.write("Category weights control how each major scoring dimension contributes to the final score.")
+        col1, col2 = st.columns([0.35, 0.65])
+        with col1:
+            if st.button("Reset category weights"):
+                st.session_state.weights = deepcopy(DEFAULT_WEIGHTS)
+                sync_category_weight_widgets()
+                st.rerun()
+        with col2:
+            st.info("Weights do not have to total 100, but a 100-point model is easiest to explain.")
+
         for key, label in WEIGHT_LABELS.items():
             st.session_state.weights[key] = st.number_input(
                 label,
@@ -1230,7 +1378,82 @@ def render_scoring(metrics: list[dict[str, Any]]) -> None:
         if weight_total != 100:
             st.warning("Weights do not need to total 100, but 100 is easiest to audit.")
 
-    with col2:
+    with field_tab:
+        st.write(
+            "Field weights control how strongly each framework input affects its category. Use 0 to ignore a field, 1 for normal importance, and higher values for stronger emphasis."
+        )
+        field_cols = st.columns([0.35, 0.35, 0.30])
+        section_options = ["All categories"] + [section["label"] for section in FRAMEWORK_SECTIONS.values()]
+        selected_label = field_cols[0].selectbox(
+            "Framework category",
+            section_options,
+            key="field_weight_category_filter",
+        )
+        max_weight = field_cols[1].number_input(
+            "Maximum field weight",
+            min_value=1.0,
+            max_value=25.0,
+            value=10.0,
+            step=1.0,
+        )
+        if field_cols[2].button("Reset field weights", width="stretch"):
+            st.session_state.field_weights = default_field_weights()
+            st.session_state.field_weight_editor_version += 1
+            st.rerun()
+
+        selected_section_key = None
+        if selected_label != "All categories":
+            selected_section_key = next(
+                key for key, section in FRAMEWORK_SECTIONS.items() if section["label"] == selected_label
+            )
+
+        rows = []
+        for field in all_framework_fields():
+            if selected_section_key and field["section_key"] != selected_section_key:
+                continue
+            rows.append(
+                {
+                    "Key": field["key"],
+                    "Section": field["section"],
+                    "Field": field["label"],
+                    "Type": FIELD_KIND_LABELS.get(field["kind"], field["kind"]),
+                    "Weight": float(st.session_state.field_weights.get(field["key"], 1.0)),
+                }
+            )
+
+        edited = st.data_editor(
+            pd.DataFrame(rows),
+            width="stretch",
+            hide_index=True,
+            disabled=["Section", "Field", "Type"],
+            column_config={
+                "Key": None,
+                "Weight": st.column_config.NumberColumn(
+                    "Weight",
+                    min_value=0.0,
+                    max_value=float(max_weight),
+                    step=0.25,
+                    format="%.2f",
+                ),
+            },
+            key=f"field_weights_{selected_label}_{st.session_state.field_weight_editor_version}",
+        )
+
+        changed = False
+        for _idx, row in edited.iterrows():
+            key = str(row["Key"])
+            next_weight = field_weight({"weight": row["Weight"]}, "weight")
+            if st.session_state.field_weights.get(key, 1.0) != next_weight:
+                st.session_state.field_weights[key] = next_weight
+                changed = True
+        if changed:
+            st.rerun()
+
+        st.caption(
+            "Cost and lead-time field weights influence the score basis. The dashboard still displays actual additive cost and lead-time totals."
+        )
+
+    with scorecard_tab:
         score_df = metrics_dataframe(metrics)
         if not score_df.empty:
             display_df = score_df.copy()
@@ -1241,6 +1464,45 @@ def render_scoring(metrics: list[dict[str, Any]]) -> None:
             st.dataframe(display_df, width="stretch", hide_index=True)
         else:
             st.info("Add suppliers to calculate scores.")
+
+
+def render_weekly_news() -> None:
+    st.subheader("Weekly Sourcing News")
+    st.caption("Current external news, cached for one week to keep the app quick and stable.")
+
+    control_cols = st.columns([0.35, 0.45, 0.20])
+    topic = control_cols[0].selectbox("News focus", list(NEWS_TOPICS.keys()) + ["Custom"])
+    default_query = NEWS_TOPICS.get(topic, NEWS_TOPICS["Global sourcing"])
+    query = control_cols[1].text_input("Search terms", value=default_query)
+    article_limit = control_cols[2].number_input("Articles", min_value=3, max_value=12, value=8, step=1)
+
+    refresh_col, source_col = st.columns([0.25, 0.75])
+    if refresh_col.button("Refresh news now", width="stretch"):
+        fetch_weekly_news.clear()
+        st.rerun()
+
+    news = fetch_weekly_news(query.strip() or NEWS_TOPICS["Global sourcing"], int(article_limit))
+    source_col.markdown(f"[Open full news feed]({news['url']})")
+    st.caption(f"Last checked: {news['fetched_at']}")
+
+    if news["error"]:
+        st.warning("The news feed could not be reached right now. Try refreshing later.")
+        st.caption(news["error"])
+        return
+
+    if not news["articles"]:
+        st.info("No matching articles were returned for this query. Try broader sourcing or supply chain terms.")
+        return
+
+    for article in news["articles"]:
+        with st.container(border=True):
+            title = article["title"]
+            link = article["link"]
+            if link:
+                st.markdown(f"**[{title}]({link})**")
+            else:
+                st.markdown(f"**{title}**")
+            st.caption(f"{article['source']} | {article['published']}")
 
 
 def render_dashboard(metrics: list[dict[str, Any]]) -> None:
@@ -1376,13 +1638,15 @@ def render_recommendation(
 def main() -> None:
     add_css()
     initialize_state()
+    sync_weight_inputs()
     page = render_sidebar()
     render_header()
 
     requirement = st.session_state.requirement
     suppliers = st.session_state.suppliers
     weights = st.session_state.weights
-    metrics = calculate_metrics(suppliers, weights, numeric(requirement.get("quantity")))
+    field_weights = st.session_state.field_weights
+    metrics = calculate_metrics(suppliers, weights, numeric(requirement.get("quantity")), field_weights)
     review = analyze_requirement(requirement)
     render_summary(metrics, review)
     st.divider()
@@ -1397,15 +1661,17 @@ def main() -> None:
         render_supplier_discovery(requirement)
     elif page == "Framework Table":
         render_framework_table()
-    elif page == "Scoring Model":
+    elif page == "Framework Weights":
         render_scoring(metrics)
+    elif page == "Weekly News":
+        render_weekly_news()
     elif page == "AI Insights":
         render_insights(requirement, suppliers, metrics)
     elif page == "Recommendation & Export":
         render_recommendation(requirement, suppliers, metrics)
 
     st.caption(
-        "This Streamlit MVP uses session state. Demo data is optional and must be loaded manually. No backend or live AI API is connected."
+        "This Streamlit MVP uses session state. Demo data is optional. Weekly news uses public RSS; no backend or live AI API is connected."
     )
 
 
