@@ -20,7 +20,7 @@ import streamlit as st
 st.set_page_config(
     page_title="Global Sourcing Copilot",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 
@@ -49,6 +49,30 @@ CONFIDENCE_ALIASES = {
 }
 
 CRITICALITY_LEVELS = ["Low", "Medium", "High", "Critical"]
+
+WORKFLOW_PAGES = [
+    "Product",
+    "Suppliers",
+    "Framework",
+    "Weights",
+    "Dashboard",
+    "Notes",
+    "Export",
+    "News",
+]
+
+LEGACY_PAGE_MAP = {
+    "Guide": "Product",
+    "Product Intake": "Product",
+    "Supplier Discovery": "Suppliers",
+    "Framework Table": "Framework",
+    "Framework Weights": "Weights",
+    "Scoring Weights": "Weights",
+    "AI Insights": "Notes",
+    "Sourcing Notes": "Notes",
+    "Recommendation & Export": "Export",
+    "Weekly News": "News",
+}
 
 SCORECARD_MAIN_COLUMNS = [
     "Supplier",
@@ -1111,25 +1135,92 @@ def add_css() -> None:
     st.markdown(
         """
         <style>
-        .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
-        [data-testid="stSidebar"] { background: #020617; }
-        [data-testid="stSidebar"] * { color: #e2e8f0; }
+        .block-container { max-width: 1220px; padding-top: 1.35rem; padding-bottom: 2rem; }
+        [data-testid="stSidebar"] { display: none; }
+        h1, h2, h3 { letter-spacing: 0; }
+        h1 { font-weight: 720; }
         .small-muted { color: #64748b; font-size: 0.9rem; }
         .risk-low { color: #047857; font-weight: 700; }
         .risk-med { color: #b45309; font-weight: 700; }
         .risk-high { color: #b91c1c; font-weight: 700; }
+        .app-kicker {
+            color: #475569;
+            font-size: 0.95rem;
+            margin-top: -0.35rem;
+            max-width: 760px;
+        }
+        .intro-panel {
+            border: 1px solid #dbe3ea;
+            border-radius: 8px;
+            padding: 2rem;
+            background: #ffffff;
+            box-shadow: 0 12px 26px rgba(15, 23, 42, 0.06);
+            margin-top: 1rem;
+        }
+        .intro-panel h1 {
+            font-size: 2.35rem;
+            line-height: 1.1;
+            margin: 0 0 0.85rem;
+        }
+        .intro-panel p {
+            color: #475569;
+            font-size: 1.05rem;
+            line-height: 1.65;
+            max-width: 820px;
+        }
+        .intro-points {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+        .intro-point {
+            border-top: 1px solid #dbe3ea;
+            padding-top: 0.85rem;
+        }
+        .intro-point strong {
+            display: block;
+            color: #0f172a;
+            font-size: 0.96rem;
+            margin-bottom: 0.25rem;
+        }
+        .intro-point span {
+            color: #64748b;
+            font-size: 0.92rem;
+            line-height: 1.45;
+        }
+        .st-key-workflow_navigation div[role="radiogroup"] {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+            background: #f8fafc;
+            border: 1px solid #dbe3ea;
+            border-radius: 8px;
+            padding: 0.35rem;
+            margin: 0.6rem 0 1rem;
+        }
+        .st-key-workflow_navigation div[role="radiogroup"] label {
+            border-radius: 6px;
+            padding: 0.35rem 0.55rem;
+            margin: 0;
+        }
         div[data-testid="stMetric"] {
             background: #ffffff;
             border: 1px solid #e2e8f0;
             padding: 1rem;
-            border-radius: 0.5rem;
-            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+            border-radius: 8px;
+            box-shadow: none;
         }
         div[data-testid="stMetric"] * {
             color: #0f172a !important;
         }
         div[data-testid="stMetricDelta"] * {
             color: #047857 !important;
+        }
+        @media (max-width: 760px) {
+            .intro-panel { padding: 1.25rem; }
+            .intro-panel h1 { font-size: 1.75rem; }
+            .intro-points { grid-template-columns: 1fr; }
         }
         </style>
         """,
@@ -1169,7 +1260,13 @@ def initialize_state() -> None:
     if "field_weight_editor_version" not in st.session_state:
         st.session_state.field_weight_editor_version = 0
     if "workspace_page" not in st.session_state:
-        st.session_state.workspace_page = "Guide"
+        st.session_state.workspace_page = "Product"
+    st.session_state.workspace_page = LEGACY_PAGE_MAP.get(
+        st.session_state.workspace_page,
+        st.session_state.workspace_page,
+    )
+    if "app_started" not in st.session_state:
+        st.session_state.app_started = False
 
 
 def reset_workspace() -> None:
@@ -1179,7 +1276,8 @@ def reset_workspace() -> None:
     sync_category_weight_widgets()
     st.session_state.field_weights = default_field_weights()
     st.session_state.field_weight_editor_version += 1
-    st.session_state.workspace_page = "Guide"
+    st.session_state.workspace_page = "Product"
+    st.session_state.app_started = True
 
 
 def load_demo_data() -> None:
@@ -1190,10 +1288,16 @@ def load_demo_data() -> None:
     st.session_state.field_weights = default_field_weights()
     st.session_state.field_weight_editor_version += 1
     st.session_state.workspace_page = "Dashboard"
+    st.session_state.app_started = True
 
 
 def navigate_to_page(page: str) -> None:
-    st.session_state.workspace_page = page
+    st.session_state.app_started = True
+    st.session_state.workspace_page = LEGACY_PAGE_MAP.get(page, page)
+
+
+def show_welcome() -> None:
+    st.session_state.app_started = False
 
 
 def requirement_progress(requirement: dict[str, Any]) -> tuple[int, int]:
@@ -1859,43 +1963,73 @@ def fetch_weekly_news(query: str, limit: int) -> dict[str, Any]:
 
 def render_header() -> None:
     st.title("Global Sourcing Copilot")
-    st.caption(
-        "AI-assisted sourcing workspace for requirements, supplier comparison, landed cost, risk, and recommendation memo."
+    st.markdown(
+        '<p class="app-kicker">Structured workspace for supplier comparison, landed cost, lead time, risk, confidence, and award recommendations.</p>',
+        unsafe_allow_html=True,
     )
 
 
-def render_sidebar() -> str:
-    st.sidebar.title("Global Sourcing Copilot")
-    st.sidebar.caption("Guided sourcing workflow with editable local session state.")
-    action_cols = st.sidebar.columns(2)
-    if action_cols[0].button("Load demo", width="stretch"):
+def render_welcome() -> None:
+    st.markdown(
+        """
+        <section class="intro-panel">
+            <h1>Global Sourcing Copilot</h1>
+            <p>
+                A practical sourcing workspace for comparing suppliers with the same framework an analyst would use:
+                requirements, landed cost, total cost of ownership, lead time, capability, risk, data confidence,
+                and recommendation logic in one place.
+            </p>
+            <div class="intro-points">
+                <div class="intro-point">
+                    <strong>Start with requirements</strong>
+                    <span>Capture product, compliance, quality, volume, lead-time, and delivery needs.</span>
+                </div>
+                <div class="intro-point">
+                    <strong>Compare suppliers</strong>
+                    <span>Score cost, TCO, capability, risk, financial stability, and contract terms.</span>
+                </div>
+                <div class="intro-point">
+                    <strong>Export a decision</strong>
+                    <span>Review the dashboard, flags, and sourcing memo before shortlisting or award.</span>
+                </div>
+            </div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.write("")
+    action_cols = st.columns([0.24, 0.24, 0.52])
+    if action_cols[0].button("Continue", type="primary", width="stretch"):
+        navigate_to_page("Product")
+        st.rerun()
+    if action_cols[1].button("Load demo", width="stretch"):
         load_demo_data()
         st.rerun()
-    if action_cols[1].button("Start fresh", width="stretch"):
+
+
+def render_navigation() -> str:
+    render_header()
+    action_cols = st.columns([0.58, 0.14, 0.14, 0.14])
+    if action_cols[1].button("Overview", width="stretch"):
+        show_welcome()
+        st.rerun()
+    if action_cols[2].button("Load demo", width="stretch"):
+        load_demo_data()
+        st.rerun()
+    if action_cols[3].button("Start fresh", width="stretch"):
         reset_workspace()
         st.rerun()
 
-    pages = [
-        "Guide",
-        "Product Intake",
-        "Supplier Discovery",
-        "Framework Table",
-        "Framework Weights",
-        "Dashboard",
-        "AI Insights",
-        "Recommendation & Export",
-        "Weekly News",
-    ]
-    if st.session_state.workspace_page not in pages:
-        st.session_state.workspace_page = "Guide"
-    page = st.sidebar.radio(
-        "Workspace",
-        pages,
-        key="workspace_page",
-    )
-    st.sidebar.info(
-        "Start with the guide, enter your own product and suppliers, adjust the framework, then review the dashboard."
-    )
+    if st.session_state.workspace_page not in WORKFLOW_PAGES:
+        st.session_state.workspace_page = "Product"
+    with st.container(key="workflow_navigation"):
+        page = st.radio(
+            "Workflow",
+            WORKFLOW_PAGES,
+            key="workspace_page",
+            horizontal=True,
+            label_visibility="collapsed",
+        )
     return page
 
 
@@ -1904,7 +2038,7 @@ def render_summary(metrics: list[dict[str, Any]], review: dict[str, Any]) -> Non
     completed_fields, total_fields = requirement_progress(st.session_state.requirement)
     cols = st.columns(4)
     if not metrics:
-        cols[0].metric("Guide step", "1", "Define product")
+        cols[0].metric("Workflow", "1", "Define product")
         cols[1].metric("Requirement fields", f"{completed_fields}/{total_fields}", "Complete intake")
         cols[2].metric("Suppliers added", len(st.session_state.suppliers), "Add 2+ options")
         cols[3].metric("Recommendation", "Not ready", review["risk_tier"])
@@ -1934,13 +2068,8 @@ def render_guide(requirement: dict[str, Any], metrics: list[dict[str, Any]]) -> 
     completed_fields, total_fields = requirement_progress(requirement)
     suppliers_count = len(st.session_state.suppliers)
 
-    st.subheader("Guide")
+    st.subheader("Workflow Guide")
     st.caption("Use this workflow to build a sourcing recommendation from your own inputs.")
-
-    st.markdown("### Start here")
-    st.write(
-        "This app now opens empty on purpose. Add the product requirement first, then suppliers, then compare costs, lead time, risk, and recommendation logic."
-    )
 
     step_cols = st.columns(4)
     step_cols[0].metric("1. Product intake", f"{completed_fields}/{total_fields}", "required fields")
@@ -1948,16 +2077,16 @@ def render_guide(requirement: dict[str, Any], metrics: list[dict[str, Any]]) -> 
     step_cols[2].metric("3. Framework", "Ready" if suppliers_count else "Waiting", "editable table")
     step_cols[3].metric("4. Memo", "Ready" if metrics else "Waiting", "after scoring")
 
-    st.markdown("### Workflow")
+    st.markdown("### Recommended path")
     st.markdown(
         """
-        1. Open **Product Intake** and enter the product, volume, quality, compliance, lead-time, and delivery requirements, or upload a sourcing Excel file to prefill matching fields.
-        2. Open **Supplier Discovery** and add suppliers manually, or use **AI Suggested Supplier** for clearly labeled placeholder options.
-        3. Open **Framework Table** and fill in cost, lead-time, capability, risk, logistics, and contract assumptions.
-        4. Open **Framework Weights** to tune the category weights and individual field weights.
+        1. Open **Product** and enter the product, volume, quality, compliance, lead-time, and delivery requirements, or upload a sourcing Excel file to prefill matching fields.
+        2. Open **Suppliers** and add suppliers manually, or use **Add sample supplier** for clearly labeled placeholder options.
+        3. Open **Framework** and fill in cost, lead-time, capability, risk, logistics, and contract assumptions.
+        4. Open **Weights** to tune the category weights and individual field weights.
         5. Open **Dashboard** to compare landed cost, total cost of ownership, lead time, risk, and supplier score.
-        6. Open **Recommendation & Export** to download the supplier table and sourcing memo.
-        7. Open **Weekly News** to scan current sourcing, trade, logistics, and supplier-risk updates when you want external context.
+        6. Open **Export** to download the supplier table and sourcing memo.
+        7. Open **News** to scan current sourcing, trade, logistics, and supplier-risk updates when you want external context.
         """
     )
 
@@ -1966,10 +2095,10 @@ def render_guide(requirement: dict[str, Any], metrics: list[dict[str, Any]]) -> 
     demo_col, fresh_col = st.columns(2)
     demo_col.button("Load demo data", type="primary", width="stretch", on_click=load_demo_data)
     fresh_col.button(
-        "Keep blank and start intake",
+        "Start with product intake",
         width="stretch",
         on_click=navigate_to_page,
-        args=("Product Intake",),
+        args=("Product",),
     )
 
 
@@ -2083,7 +2212,7 @@ def render_intake(requirement: dict[str, Any], review: dict[str, Any]) -> None:
         "Packaging requirements", requirement["packaging_requirements"], height=90
     )
 
-    st.markdown("### AI Requirement Review")
+    st.markdown("### Requirement Review")
     review_cols = st.columns(4)
     review_cols[0].write("**Missing information**")
     review_cols[0].write("\n".join(f"- {item}" for item in review["missing"]) or "No major missing fields.")
@@ -2098,21 +2227,21 @@ def render_intake(requirement: dict[str, Any], review: dict[str, Any]) -> None:
 
 def render_supplier_discovery(requirement: dict[str, Any]) -> None:
     st.subheader("Supplier Discovery")
-    st.caption("Add suppliers manually or create clearly labeled sample suggestions.")
-    if st.button("AI Suggested Supplier", type="primary"):
+    st.caption("Add suppliers manually or create clearly labeled sample suppliers for testing.")
+    if st.button("Add sample supplier", type="primary"):
         template = deepcopy(SAMPLE_SUPPLIERS[len(st.session_state.suppliers) % len(SAMPLE_SUPPLIERS)])
         category = requirement.get("product_category") or "target product"
         template.update(
             {
-                "id": f"ai-suggested-{len(st.session_state.suppliers) + 1}",
+                    "id": f"sample-supplier-{len(st.session_state.suppliers) + 1}",
                 "name": f"{category} Sample Supplier {len(st.session_state.suppliers) + 1}",
                 "country": "Manual verification needed",
-                "region": "AI suggested region",
+                "region": "Suggested region",
                 "website": "Unavailable online",
                 "product_match": f"Sample match for {category}. Verify capability before outreach.",
                 "certifications": "Unavailable Online",
                 "annual_capacity": max(50000, int(numeric(requirement.get("forecasted_demand")))),
-                "customer_notes": "AI suggested placeholder generated from product category. Treat as sample data only.",
+                "customer_notes": "Sample supplier generated from the product category. Treat as placeholder data only.",
                 "confidence_level": "AI Estimate",
             }
         )
@@ -2122,7 +2251,7 @@ def render_supplier_discovery(requirement: dict[str, Any]) -> None:
         template["values"]["documentation_ability"] = 2
         template["values"]["contract_payment_terms"] = "Unknown; request in RFQ"
         st.session_state.suppliers.append(template)
-        st.success("Added a sample AI suggested supplier. Manual verification required.")
+        st.success("Added a sample supplier. Manual verification required.")
 
     for idx, supplier in enumerate(st.session_state.suppliers):
         with st.expander(f"{supplier['name']} - {supplier['confidence_level']}", expanded=idx < 3):
@@ -2230,7 +2359,7 @@ def render_framework_table() -> None:
 
 
 def render_scoring(metrics: list[dict[str, Any]]) -> None:
-    st.subheader("Framework Weights")
+    st.subheader("Scoring Weights")
     st.caption(
         "Tune how the sourcing framework scores suppliers. Risk inputs are inverted so lower risk improves score."
     )
@@ -2452,7 +2581,7 @@ def render_supplier_detail_sections(
                     hide_index=True,
                 )
 
-            st.markdown("#### AI sourcing notes")
+            st.markdown("#### Sourcing notes")
             st.write(supplier.get("customer_notes") or "No sourcing notes entered.")
 
 
@@ -2514,9 +2643,9 @@ def render_dashboard(metrics: list[dict[str, Any]]) -> None:
             """
             **Recommended next steps**
 
-            1. Complete Product Intake.
+            1. Complete Product.
             2. Add at least two suppliers.
-            3. Fill in cost and lead-time assumptions in the Framework Table.
+            3. Fill in cost and lead-time assumptions in Framework.
             4. Return here for charts and scoring.
             """
         )
@@ -2626,8 +2755,8 @@ def render_dashboard(metrics: list[dict[str, Any]]) -> None:
 def render_insights(
     requirement: dict[str, Any], suppliers: list[dict[str, Any]], metrics: list[dict[str, Any]]
 ) -> None:
-    st.subheader("AI Insight Panels")
-    st.caption("Rule-based placeholder logic. Validate supplier data manually before final award.")
+    st.subheader("Sourcing Notes")
+    st.caption("Rule-based review notes. Validate supplier data manually before final award.")
     if not suppliers:
         st.info("Insights will appear after you add product requirements and supplier options.")
         return
@@ -2665,8 +2794,6 @@ def main() -> None:
     add_css()
     initialize_state()
     sync_weight_inputs()
-    page = render_sidebar()
-    render_header()
 
     requirement = st.session_state.requirement
     suppliers = st.session_state.suppliers
@@ -2680,30 +2807,35 @@ def main() -> None:
         requirement,
     )
     review = analyze_requirement(requirement)
+
+    if not st.session_state.app_started:
+        render_welcome()
+        st.caption("Session data stays in this Streamlit session. Use demo data only when you want a sample case.")
+        return
+
+    page = render_navigation()
     render_summary(metrics, review)
     st.divider()
 
-    if page == "Guide":
-        render_guide(requirement, metrics)
-    elif page == "Dashboard":
+    if page == "Dashboard":
         render_dashboard(metrics)
-    elif page == "Product Intake":
+    elif page == "Product":
         render_intake(requirement, review)
-    elif page == "Supplier Discovery":
+    elif page == "Suppliers":
         render_supplier_discovery(requirement)
-    elif page == "Framework Table":
+    elif page == "Framework":
         render_framework_table()
-    elif page == "Framework Weights":
+    elif page == "Weights":
         render_scoring(metrics)
-    elif page == "AI Insights":
+    elif page == "Notes":
         render_insights(requirement, suppliers, metrics)
-    elif page == "Recommendation & Export":
+    elif page == "Export":
         render_recommendation(requirement, suppliers, metrics)
-    elif page == "Weekly News":
+    elif page == "News":
         render_weekly_news()
 
     st.caption(
-        "This Streamlit MVP uses session state. Demo data is optional. Weekly news uses public RSS; no backend or live AI API is connected."
+        "This Streamlit app uses session state. Demo data is optional. Weekly news uses public RSS; no backend integrations are connected."
     )
 
 

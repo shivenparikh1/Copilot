@@ -1,6 +1,6 @@
 # Global Sourcing Copilot
 
-AI-assisted sourcing decision workspace for product requirement intake, supplier discovery, landed cost analysis, lead-time comparison, supplier scoring, risk review, and final recommendation memos.
+Structured sourcing decision workspace for product requirement intake, supplier discovery, landed cost analysis, lead-time comparison, supplier scoring, risk review, and final recommendation memos.
 
 The repository includes two frontends:
 
@@ -32,12 +32,12 @@ Local run:
 python -m streamlit run streamlit_app.py
 ```
 
-The Streamlit app starts as a blank guided workflow. It does not preload product or supplier data. Use **Load demo** inside the app only when you want sample data for testing.
+The Streamlit app starts with a brief overview screen. Click **Continue** to open the sourcing workflow. It does not preload product or supplier data. Use **Load demo** inside the app only when you want sample data for testing.
 
 New sourcing workflow sections include:
 
-- **Framework Weights** for changing top-level scoring weights, individual field weights, and the transparent Supplier Scorecard model.
-- **Weekly News** for current sourcing, trade, logistics, and supplier-risk headlines from a public RSS feed cached for one week.
+- **Weights** for changing top-level scoring weights, individual field weights, and the transparent Supplier Scorecard model.
+- **News** for current sourcing, trade, logistics, and supplier-risk headlines from a public RSS feed cached for one week.
 - **Sourcing Excel Upload** for extracting matching product requirements and supplier rows from `.xlsx` workbooks.
 
 ## React App
@@ -62,6 +62,6 @@ pnpm build
 - Includes public RSS-based weekly news updates for current sourcing context.
 - Can prefill matching requirement and supplier fields from uploaded sourcing Excel workbooks while leaving unmatched fields blank.
 - Stores edits in local browser/session state depending on frontend.
-- Does not connect to a backend or live AI API.
-- AI review, supplier suggestions, insights, and memo generation use rule-based placeholder logic.
+- Does not connect to a backend integration.
+- Requirement review, sample suppliers, sourcing notes, and memo generation use rule-based placeholder logic.
 - Supplier data confidence labels include Verified, Supplier Quote, Public Estimate, AI Estimate, Manual Review Needed, and Unavailable Online.
